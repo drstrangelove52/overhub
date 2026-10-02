@@ -40,8 +40,9 @@ const warnings = computed(() => {
   const ts = system.value?.tailscale;
   if (!ts) return [];
   const list = [];
-  if (ts.state !== "Running") list.push(`Tailscale ist nicht verbunden (Status: ${ts.state || "unbekannt"}).`);
-  if (!ts.cert_domains?.length) list.push("HTTPS-Zertifikate sind im Tailnet nicht aktiviert (Tailscale-Adminkonsole → DNS).");
+  if (!ts.state) return ["OverHub kann den Tailscale-Status nicht lesen. Adressen der Apps werden darum nicht angezeigt."];
+  if (ts.state !== "Running") list.push(`Tailscale ist nicht verbunden (Status: ${ts.state}).`);
+  else if (!ts.cert_domains?.length) list.push("HTTPS-Zertifikate sind im Tailnet nicht aktiviert (Tailscale-Adminkonsole → DNS).");
   if (ts.key_expiry) {
     const days = Math.floor((new Date(ts.key_expiry) - Date.now()) / 86400000);
     if (days < 30)
@@ -118,6 +119,7 @@ function statusOf(app) {
                     <span class="rounded-full px-2 py-0.5 text-xs" :class="statusOf(app).cls">{{ statusOf(app).text }}</span>
                   </div>
                   <a v-if="app.url" :href="app.url" target="_blank" rel="noopener" class="break-all text-sm text-orange-400 hover:underline">{{ app.url }}</a>
+                  <span v-else class="text-sm text-gray-400">Port {{ app.port }}</span>
                 </div>
               </div>
               <div class="flex flex-wrap gap-2">
@@ -141,7 +143,7 @@ function statusOf(app) {
               <img v-if="app.has_icon" :src="`/api/apps/${app.id}/icon`" class="h-10 w-10 rounded-lg" alt="" />
               <div v-else class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-800 font-bold text-orange-400">{{ app.name.slice(4, 5) }}</div>
               <div>
-                <div class="font-semibold">{{ app.name }} <span class="text-xs font-normal text-gray-500">{{ app.catalog_version }}</span></div>
+                <div class="font-semibold">{{ app.name }} <span class="text-xs font-normal text-gray-500">{{ app.catalog_version }} · Port {{ app.port }}</span></div>
                 <p class="text-sm text-gray-400">{{ app.description }}</p>
               </div>
             </div>
