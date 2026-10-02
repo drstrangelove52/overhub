@@ -4,6 +4,7 @@ name: Image
 
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   pull_request:
 
@@ -29,6 +30,14 @@ jobs:
           pytest -q
       - name: Installer syntax
         run: bash -n install.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Frontend build
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
 
   image:
     needs: test

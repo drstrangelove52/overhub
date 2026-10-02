@@ -297,6 +297,45 @@ def start(log, app_id: str) -> None:
     wait_healthy(manifest, log)
 
 
+def uninstall(log, app_id: str, delete_data: bool) -> None:
+    """Remove containers and the tailnet port. With delete_data also the
+    volumes (database, uploads) and the app dir with its secrets; without it
+    .env stays, so a later install reuses the same secrets and finds its data."""
+    manifest = get_manifest(app_id)
+    db = SessionLocal()
+    try:
+        if db.get(InstalledApp, app_id) is None:
+            raise OperationError(f"{manifest.name} ist nicht installiert")
+    finally:
+        db.close()
+    directory = app_dir(app_id)
+
+    log(f"Entferne HTTPS-Freigabe auf Port {manifest.port}")
+    result = tailscale_ops.serve_off(manifest.port)
+    if not result.ok:
+        log(f"Hinweis: {result.output.strip()}")  # e.g. already off; not a reason to stop
+
+    args = ["down", "--remove-orphans"] + (["--volumes"] if delete_data else [])
+    log("Entferne Container" + (" und Daten (Volumes)" if delete_data else ", Daten bleiben erhalten"))
+    result = docker_ops.compose(directory, *args)
+    log(result.output.strip() or "ok")
+    if not result.ok:
+        raise OperationError("Entfernen der Container fehlgeschlagen")
+
+    if delete_data:
+        shutil.rmtree(directory, ignore_errors=True)
+        log(f"{directory} gelöscht")
+    else:
+        log(f"Daten und Zugangsdaten bleiben in {directory} und den Volumes; eine neue Installation übernimmt sie")
+
+    db = SessionLocal()
+    try:
+        db.delete(db.get(InstalledApp, app_id))
+        db.commit()
+    finally:
+        db.close()
+
+
 def stop(log, app_id: str) -> None:
     result = docker_ops.compose(app_dir(app_id), "stop")
     log(result.output.strip() or "gestoppt")

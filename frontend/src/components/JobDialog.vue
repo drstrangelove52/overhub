@@ -12,7 +12,7 @@ const logEl = ref(null);
 const copied = ref("");
 let timer;
 
-const actions = { install: "Installation", update: "Update", start: "Start", stop: "Stopp" };
+const actions = { install: "Installation", update: "Update", start: "Start", stop: "Stopp", uninstall: "Entfernen" };
 
 async function poll() {
   try {

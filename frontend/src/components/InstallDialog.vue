@@ -33,7 +33,10 @@ async function submit() {
   <ModalShell :title="`${app.name} ${app.catalog_version} installieren`" @close="emit('close')">
     <form class="space-y-4" @submit.prevent="submit">
       <p class="text-sm text-gray-400">{{ app.description }}</p>
-      <div v-for="s in app.settings" :key="s.name">
+      <p v-if="app.data_kept" class="rounded-lg border border-green-800 bg-green-900/20 p-3 text-sm text-green-300">
+        Daten und Zugangsdaten einer früheren Installation sind vorhanden und werden übernommen.
+      </p>
+      <div v-for="s in app.data_kept ? [] : app.settings" :key="s.name">
         <label class="mb-1 block text-xs text-gray-400">{{ s.label }}</label>
         <input v-model="values[s.name]" class="input" required />
       </div>

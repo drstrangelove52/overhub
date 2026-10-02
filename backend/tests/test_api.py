@@ -115,3 +115,34 @@ def test_system(admin, host):
     data = admin.get("/api/system").json()
     assert data["tailscale"]["dns_name"] == "pi.tail1234.ts.net"
     assert data["tailscale"]["key_expiry"].startswith("2027")
+
+
+def test_uninstall_keep_data_then_reinstall_reuses_secrets(admin, host):
+    wait_job(admin, admin.post("/api/apps/overcook/install", json={}).json()["job_id"])
+    secret = read_env(settings.apps_dir / "overcook" / ".env")["MYSQL_PASSWORD"]
+
+    job = wait_job(admin, admin.post("/api/apps/overcook/uninstall", json={}).json()["job_id"])
+    assert job["status"] == "success", job["log"]
+    assert ["tailscale", "serve", "--https=8443", "off"] in host.calls
+    down = [c for c in host.calls if "down" in c][-1]
+    assert "--volumes" not in down
+    app = next(a for a in admin.get("/api/apps").json() if a["id"] == "overcook")
+    assert not app["installed"] and app["data_kept"]
+
+    wait_job(admin, admin.post("/api/apps/overcook/install", json={}).json()["job_id"])
+    assert read_env(settings.apps_dir / "overcook" / ".env")["MYSQL_PASSWORD"] == secret
+
+
+def test_uninstall_delete_data(admin, host):
+    wait_job(admin, admin.post("/api/apps/overstand/install", json={}).json()["job_id"])
+    job = wait_job(admin, admin.post("/api/apps/overstand/uninstall", json={"delete_data": True}).json()["job_id"])
+    assert job["status"] == "success", job["log"]
+    assert "--volumes" in [c for c in host.calls if "down" in c][-1]
+    assert not (settings.apps_dir / "overstand").exists()
+    app = next(a for a in admin.get("/api/apps").json() if a["id"] == "overstand")
+    assert not app["installed"] and not app["data_kept"]
+
+
+def test_uninstall_not_installed(admin, host):
+    job = wait_job(admin, admin.post("/api/apps/overstand/uninstall", json={}).json()["job_id"])
+    assert job["status"] == "failed" and "nicht installiert" in job["log"]

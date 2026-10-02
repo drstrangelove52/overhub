@@ -4,7 +4,8 @@ import { api } from "../api";
 import InstallDialog from "../components/InstallDialog.vue";
 import JobDialog from "../components/JobDialog.vue";
 import LogsDialog from "../components/LogsDialog.vue";
-import PasswordDialog from "../components/PasswordDialog.vue";
+import SettingsDialog from "../components/SettingsDialog.vue";
+import UninstallDialog from "../components/UninstallDialog.vue";
 
 defineProps({ user: Object });
 defineEmits(["logout"]);
@@ -15,7 +16,8 @@ const error = ref("");
 const installing = ref(null);
 const jobId = ref(null);
 const logsFor = ref(null);
-const showPassword = ref(false);
+const showSettings = ref(false);
+const removing = ref(null);
 let timer;
 
 async function load() {
@@ -67,6 +69,7 @@ function startInstall(app) {
 
 function onJobStarted(id) {
   installing.value = null;
+  removing.value = null;
   jobId.value = id;
 }
 
@@ -93,7 +96,8 @@ function statusOf(app) {
           <span v-if="system" class="ml-2 text-xs text-gray-500">{{ system.version }} · {{ system.tailscale.dns_name }}</span>
         </div>
         <div class="flex items-center gap-2 text-sm">
-          <button class="text-gray-400 hover:text-gray-200" @click="showPassword = true">{{ user.username }}</button>
+          <span class="hidden text-gray-400 sm:inline">{{ user.username }}</span>
+          <button class="btn-secondary" @click="showSettings = true">Einstellungen</button>
           <button class="btn-secondary" @click="$emit('logout')">Abmelden</button>
         </div>
       </div>
@@ -129,14 +133,18 @@ function statusOf(app) {
                 <button class="btn-secondary" @click="logsFor = app">Logs</button>
                 <button v-if="app.healthy" class="btn-secondary" :disabled="app.busy" @click="action(app, 'stop')">Stoppen</button>
                 <button v-else class="btn-secondary" :disabled="app.busy" @click="action(app, 'start')">Starten</button>
+                <button class="btn-secondary text-red-300" :disabled="app.busy" @click="removing = app">Entfernen</button>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <section v-if="available.length">
+      <section>
         <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-400">Katalog</h2>
+        <p v-if="apps.length && !available.length" class="text-sm text-gray-500">
+          Alle Apps aus dem Katalog sind installiert. Neue Apps kommen mit neuen OverHub-Versionen (Installer auf dem Gerät erneut ausführen).
+        </p>
         <div class="grid gap-3 sm:grid-cols-2">
           <div v-for="app in available" :key="app.id" class="card flex flex-col justify-between gap-3 p-4">
             <div class="flex items-start gap-3">
@@ -145,6 +153,7 @@ function statusOf(app) {
               <div>
                 <div class="font-semibold">{{ app.name }} <span class="text-xs font-normal text-gray-500">{{ app.catalog_version }} · Port {{ app.port }}</span></div>
                 <p class="text-sm text-gray-400">{{ app.description }}</p>
+                <p v-if="app.data_kept" class="mt-1 text-xs text-green-300">Daten einer früheren Installation sind vorhanden und werden übernommen.</p>
               </div>
             </div>
             <button class="btn-primary self-end" :disabled="app.busy" @click="startInstall(app)">Installieren</button>
@@ -156,6 +165,7 @@ function statusOf(app) {
     <InstallDialog v-if="installing" :app="installing" @close="installing = null" @started="onJobStarted" />
     <JobDialog v-if="jobId" :job-id="jobId" @close="onJobClosed" />
     <LogsDialog v-if="logsFor" :app="logsFor" @close="logsFor = null" />
-    <PasswordDialog v-if="showPassword" @close="showPassword = false" />
+    <SettingsDialog v-if="showSettings" :system="system" :user="user" @close="showSettings = false" />
+    <UninstallDialog v-if="removing" :app="removing" @close="removing = null" @started="onJobStarted" />
   </div>
 </template>

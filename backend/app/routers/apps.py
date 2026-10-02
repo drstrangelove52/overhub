@@ -55,6 +55,8 @@ def list_apps(db: DbSession = Depends(get_db)):
                            for k, c in manifest.components.items()},
             "installed": app is not None,
             "busy": operations.is_busy(manifest.id),
+            # Left behind by "remove, keep data": a new install reuses it.
+            "data_kept": app is None and (operations.app_dir(manifest.id) / ".env").exists(),
         }
         if app:
             states = docker_ops.ps(operations.app_dir(manifest.id))
@@ -99,6 +101,16 @@ def install(app_id: str, body: InstallIn):
 def update(app_id: str):
     _manifest_or_404(app_id)
     return _start(app_id, "update", operations.update, app_id)
+
+
+class UninstallIn(BaseModel):
+    delete_data: bool = False
+
+
+@router.post("/apps/{app_id}/uninstall")
+def uninstall(app_id: str, body: UninstallIn):
+    _manifest_or_404(app_id)
+    return _start(app_id, "uninstall", operations.uninstall, app_id, body.delete_data)
 
 
 @router.post("/apps/{app_id}/start")
