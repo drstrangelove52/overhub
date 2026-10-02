@@ -20,7 +20,7 @@ def test_api_requires_login(client):
 def test_login_logout_and_wrong_password(client):
     assert client.post("/api/auth/login", json={"username": "admin", "password": "nope"}).status_code == 401
     assert client.post("/api/auth/login", json={"username": "admin", "password": "admin-pass-123"}).status_code == 200
-    assert client.get("/api/auth/me").json() == {"username": "admin"}
+    assert client.get("/api/auth/me").json() == {"username": "admin", "is_admin": True}
     client.post("/api/auth/logout")
     assert client.get("/api/auth/me").status_code == 401
 

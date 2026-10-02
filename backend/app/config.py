@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     session_cookie_name: str = "overhub_session"
     session_cookie_secure: bool = True
-    session_max_age_seconds: int = 1209600  # 14 days
+    session_max_age_seconds: int = 90 * 86400  # sliding: extended whenever used
 
     # First-start bootstrap of the single admin (only while no user exists).
     admin_username: str = "admin"

@@ -9,6 +9,7 @@ import UninstallDialog from "../components/UninstallDialog.vue";
 import BackupDialog from "../components/BackupDialog.vue";
 import DataDialog from "../components/DataDialog.vue";
 import ReplaceDialog from "../components/ReplaceDialog.vue";
+import UsersDialog from "../components/UsersDialog.vue";
 
 defineProps({ user: Object });
 defineEmits(["logout"]);
@@ -24,6 +25,7 @@ const removing = ref(null);
 const showBackup = ref(false);
 const dataFor = ref(null);
 const showReplace = ref(false);
+const showUsers = ref(false);
 const backupInfo = ref(null);
 let timer;
 
@@ -116,6 +118,7 @@ function statusOf(app) {
         </div>
         <div class="flex items-center gap-2 text-sm">
           <span class="hidden text-gray-400 sm:inline">{{ user.username }}</span>
+          <button class="btn-secondary" @click="showUsers = true">Benutzer</button>
           <button class="btn-secondary" @click="showBackup = true">Backup</button>
           <button class="btn-secondary" @click="showSettings = true">Einstellungen</button>
           <button class="btn-secondary" @click="$emit('logout')">Abmelden</button>
@@ -198,6 +201,7 @@ function statusOf(app) {
     <LogsDialog v-if="logsFor" :app="logsFor" @close="logsFor = null" />
     <SettingsDialog v-if="showSettings" :system="system" :user="user" @close="showSettings = false" />
     <BackupDialog v-if="showBackup" @close="showBackup = false" @changed="load" @started="(id) => { showBackup = false; jobId = id; }" />
+    <UsersDialog v-if="showUsers" :apps="apps" :me="user" @close="showUsers = false" />
     <ReplaceDialog v-if="showReplace" @close="showReplace = false" @started="onJobStarted" />
     <DataDialog v-if="dataFor" :app="dataFor" @close="dataFor = null" @started="onJobStarted" />
     <UninstallDialog v-if="removing" :app="removing" @close="removing = null" @started="onJobStarted" />

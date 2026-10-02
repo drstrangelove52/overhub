@@ -18,6 +18,19 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
 
 
+OVERHUB_APP = "_overhub"  # role "admin" here = may manage OverHub; apps: "user" or "admin"
+
+
+class UserRole(Base):
+    """Role of a user per app (contract rule 9). No row = no access."""
+
+    __tablename__ = "user_role"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), primary_key=True)
+    app_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16))
+
+
 class Session(Base):
     __tablename__ = "session"
 

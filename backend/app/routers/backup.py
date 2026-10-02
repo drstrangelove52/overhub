@@ -10,9 +10,9 @@ from app.catalog import get_manifest
 from app.config import settings
 from app.database import get_db
 from app.models import BackupStatus, BackupTarget, InstalledApp
-from app.routers.auth import current_user
+from app.routers.auth import require_admin
 
-router = APIRouter(prefix="/api/backup", tags=["backup"], dependencies=[Depends(current_user)])
+router = APIRouter(prefix="/api/backup", tags=["backup"], dependencies=[Depends(require_admin)])
 
 USB_PATH = "/mnt/overhub/backup"
 

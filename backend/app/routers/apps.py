@@ -16,9 +16,9 @@ from app.catalog import get_manifest, load_catalog, version_tuple
 from app.database import get_db
 from app.envfile import validate_value
 from app.models import InstalledApp, Job
-from app.routers.auth import current_user
+from app.routers.auth import require_admin
 
-router = APIRouter(prefix="/api", tags=["apps"], dependencies=[Depends(current_user)])
+router = APIRouter(prefix="/api", tags=["apps"], dependencies=[Depends(require_admin)])
 
 
 class InstallIn(BaseModel):
@@ -104,14 +104,6 @@ def list_apps(db: DbSession = Depends(get_db)):
             })
         result.append(entry)
     return result
-
-
-@router.get("/apps/{app_id}/icon")
-def icon(app_id: str):
-    manifest = _manifest_or_404(app_id)
-    if not manifest.icon:
-        raise HTTPException(404)
-    return FileResponse(manifest.dir / manifest.icon)
 
 
 @router.post("/apps/{app_id}/install")

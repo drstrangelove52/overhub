@@ -18,7 +18,8 @@ from app.catalog import get_manifest
 from app.config import settings
 from app.database import SessionLocal
 from app.envfile import read_env, write_env
-from app.models import BackupTarget, InstalledApp, Session, User
+from app.bootstrap import grant_admins
+from app.models import OVERHUB_APP, BackupTarget, InstalledApp, Session, User, UserRole
 
 
 class ReplaceError(Exception):
@@ -82,6 +83,10 @@ def run(log, location: str, key: str, snapshot_id: str) -> None:
         con = sqlite3.connect(old_db)
         try:
             users = con.execute("select username, password_hash from user").fetchall()
+            tables = {r[0] for r in con.execute("select name from sqlite_master where type='table'")}
+            roles = con.execute(
+                "select u.username, r.app_id, r.role from user_role r join user u on u.id = r.user_id"
+            ).fetchall() if "user_role" in tables else None  # backups of OverHub < 0.4.0 have no roles
             targets = con.execute("select name, location from backup_target").fetchall()
             apps = con.execute("select id, components from installed_app order by id").fetchall()
         finally:
@@ -142,9 +147,23 @@ def run(log, location: str, key: str, snapshot_id: str) -> None:
         db = SessionLocal()
         try:
             db.query(Session).delete()
+            db.query(UserRole).delete()
             db.query(User).delete()
+            new = {}
             for username, password_hash in users:
-                db.add(User(username=username, password_hash=password_hash))
+                new[username] = User(username=username, password_hash=password_hash)
+                db.add(new[username])
+            db.flush()
+            if roles is None:  # before roles everyone was admin
+                for user in new.values():
+                    db.add(UserRole(user_id=user.id, app_id=OVERHUB_APP, role="admin"))
+                db.flush()
+                for app in db.query(InstalledApp):
+                    grant_admins(db, app.id)
+            else:
+                for username, app_id, role in roles:
+                    if username in new:
+                        db.add(UserRole(user_id=new[username].id, app_id=app_id, role=role))
             db.commit()
         finally:
             db.close()

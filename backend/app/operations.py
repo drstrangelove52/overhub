@@ -17,8 +17,9 @@ from app import backup, docker_ops, tailscale_ops
 from app.catalog import Manifest, get_manifest, version_tuple
 from app.config import settings
 from app.database import SessionLocal
+from app.bootstrap import grant_admins
 from app.envfile import read_env, validate_value, write_env
-from app.models import InstalledApp, Job, utcnow
+from app.models import InstalledApp, Job, UserRole, utcnow
 from app.security import generate_secret
 
 
@@ -186,6 +187,11 @@ def build_env(manifest: Manifest, user_settings: dict[str, str], components: lis
     url = tailscale_ops.app_url(manifest.port)
     if url:
         env["APP_PUBLIC_URL"] = url
+    # Single sign-on (contract rule 8): the app asks OverHub who is logged in.
+    env["OVERHUB_URL"] = "http://127.0.0.1:10443"
+    overhub_url = tailscale_ops.app_url(443)
+    if overhub_url:
+        env["OVERHUB_PUBLIC_URL"] = overhub_url
     env.setdefault("TZ", settings.tz)
     if components:
         env["COMPOSE_PROFILES"] = ",".join(components)
@@ -287,6 +293,7 @@ def install(log, app_id: str, user_settings: dict[str, str], components: list[st
     db = SessionLocal()
     try:
         db.add(InstalledApp(id=app_id, version=manifest.version, components=",".join(components)))
+        grant_admins(db, app_id)  # OverHub admins may use the new app right away
         db.commit()
     finally:
         db.close()
@@ -417,6 +424,8 @@ def uninstall(log, app_id: str, delete_data: bool, export_passphrase: str | None
     db = SessionLocal()
     try:
         db.delete(db.get(InstalledApp, app_id))
+        if delete_data:  # with the data the app's users are gone too; kept data keeps its roles
+            db.query(UserRole).filter(UserRole.app_id == app_id).delete()
         db.commit()
     finally:
         db.close()

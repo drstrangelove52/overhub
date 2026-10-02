@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
@@ -9,11 +9,16 @@ from sqlalchemy.orm import Session as DbSession
 
 from app.config import settings
 from app.database import get_db
-from app.models import Session, User
+from app.models import OVERHUB_APP, Session, User, UserRole
 from app.security import generate_session_token, hash_password, session_expiry, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 limiter = Limiter(key_func=get_remote_address)
+
+# The browser keeps the cookie as long as browsers allow; whether the session is
+# still valid is decided here (90 days, extended whenever it is used — also by
+# an app asking /api/sso/whoami, so using only OverCook keeps you logged in).
+COOKIE_MAX_AGE = 400 * 86400
 
 
 class LoginIn(BaseModel):
@@ -26,21 +31,44 @@ class PasswordIn(BaseModel):
     new_password: str
 
 
+def session_user(db: DbSession, token: str | None) -> User | None:
+    """The user of a valid session; extends the session (sliding expiry)."""
+    if not token:
+        return None
+    session = db.get(Session, token)
+    if session is None:
+        return None
+    now = datetime.now(timezone.utc)
+    expires = session.expires_at if session.expires_at.tzinfo else session.expires_at.replace(tzinfo=timezone.utc)
+    if expires < now:
+        db.delete(session)
+        db.commit()
+        return None
+    if expires - now < timedelta(seconds=settings.session_max_age_seconds) - timedelta(days=1):
+        session.expires_at = session_expiry(settings.session_max_age_seconds)  # at most one write per day
+        db.commit()
+    return db.get(User, session.user_id)
+
+
+def role_of(db: DbSession, user: User, app_id: str) -> str | None:
+    row = db.get(UserRole, (user.id, app_id))
+    return row.role if row else None
+
+
 def current_user(
     db: DbSession = Depends(get_db),
     token: str | None = Cookie(default=None, alias=settings.session_cookie_name),
 ) -> User:
-    if not token:
+    user = session_user(db, token)
+    if user is None:
         raise HTTPException(401, "Nicht angemeldet")
-    session = db.get(Session, token)
-    if session is None:
-        raise HTTPException(401, "Nicht angemeldet")
-    expires = session.expires_at if session.expires_at.tzinfo else session.expires_at.replace(tzinfo=timezone.utc)
-    if expires < datetime.now(timezone.utc):
-        db.delete(session)
-        db.commit()
-        raise HTTPException(401, "Sitzung abgelaufen")
-    return db.get(User, session.user_id)
+    return user
+
+
+def require_admin(user: User = Depends(current_user), db: DbSession = Depends(get_db)) -> User:
+    if role_of(db, user, OVERHUB_APP) != "admin":
+        raise HTTPException(403, "Nur für OverHub-Admins")
+    return user
 
 
 @router.post("/login")
@@ -55,7 +83,7 @@ def login(request: Request, body: LoginIn, response: Response, db: DbSession = D
     response.set_cookie(
         settings.session_cookie_name,
         token,
-        max_age=settings.session_max_age_seconds,
+        max_age=COOKIE_MAX_AGE,
         httponly=True,
         samesite="lax",
         secure=settings.session_cookie_secure,
@@ -77,8 +105,8 @@ def logout(
 
 
 @router.get("/me")
-def me(user: User = Depends(current_user)):
-    return {"username": user.username}
+def me(user: User = Depends(current_user), db: DbSession = Depends(get_db)):
+    return {"username": user.username, "is_admin": role_of(db, user, OVERHUB_APP) == "admin"}
 
 
 @router.put("/me/password")

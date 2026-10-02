@@ -15,8 +15,9 @@ from app.bootstrap import init_db
 from app.config import settings
 from app.database import get_db
 from app.routers.apps import router as apps_router
-from app.routers.auth import current_user, limiter, router as auth_router
+from app.routers.auth import limiter, require_admin, router as auth_router
 from app.routers.backup import router as backup_router
+from app.routers.users import router as users_router
 
 
 @asynccontextmanager
@@ -35,6 +36,7 @@ app.add_middleware(SlowAPIMiddleware)
 app.include_router(auth_router)
 app.include_router(apps_router)
 app.include_router(backup_router)
+app.include_router(users_router)
 
 
 @app.get("/api/health")
@@ -51,7 +53,7 @@ def version():
     return {"version": settings.version}
 
 
-@app.get("/api/system", dependencies=[Depends(current_user)])
+@app.get("/api/system", dependencies=[Depends(require_admin)])
 def system():
     st = tailscale_ops.status()
     self_ = st.get("Self") or {}
