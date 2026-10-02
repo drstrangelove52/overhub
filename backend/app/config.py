@@ -31,6 +31,12 @@ class Settings(BaseSettings):
 
     scheduler_enabled: bool = True  # off in tests
 
+    # The container only sees /opt/overhub and /mnt/overhub of the host
+    # (install.sh), so backup locations must live below backup_root.
+    backup_root: Path = Path("/mnt/overhub")
+    # A backup target must be a mounted disk, not just a folder on the system disk.
+    require_mounted_targets: bool = True
+
     @property
     def apps_dir(self) -> Path:
         return self.data_dir / "apps"

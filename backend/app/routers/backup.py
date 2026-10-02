@@ -56,13 +56,10 @@ def overview(db: DbSession = Depends(get_db)):
 
 @router.post("/targets")
 def add_target(body: TargetIn, db: DbSession = Depends(get_db)):
-    location = body.location.strip().rstrip("/\\") or "/"
-    path = Path(location)
-    if not path.is_absolute() or ".." in path.parts:
-        raise HTTPException(400, "Bitte einen absoluten Pfad angeben, z.B. /mnt/overhub/backup")
-    data_dir = settings.data_dir.resolve()
-    if path.resolve() == data_dir or data_dir in path.resolve().parents:
-        raise HTTPException(400, "Das Ziel darf nicht im OverHub-Datenordner liegen (dieselbe Disk schützt nicht)")
+    try:
+        location = backup.check_location(body.location)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     for existing in db.query(BackupTarget):
         if os.path.normpath(existing.location) == os.path.normpath(location):
             raise HTTPException(409, f"Dieser Ordner ist schon als Ziel „{existing.name}“ eingerichtet")
@@ -88,8 +85,17 @@ def key():
     return {"key": backup.recovery_key()}
 
 
+class KeyAckIn(BaseModel):
+    confirm: str  # the last characters of the key, typed back in
+
+
 @router.post("/key/ack")
-def acknowledge_key():
+def acknowledge_key(body: KeyAckIn):
+    # Typing the end of the key back in proves it was actually stored somewhere —
+    # a plain "I saved it" button got clicked without saving (seen in testing).
+    confirm = body.confirm.strip()
+    if len(confirm) < 6 or not backup.recovery_key().endswith(confirm):
+        raise HTTPException(400, "Die eingegebenen Zeichen stimmen nicht mit dem Ende des Schlüssels überein")
     backup.set_setting("backup_key_acknowledged", "1")
     return {"ok": True}
 

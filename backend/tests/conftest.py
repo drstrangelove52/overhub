@@ -12,6 +12,9 @@ os.environ["OVERHUB_SESSION_COOKIE_SECURE"] = "false"
 os.environ["OVERHUB_ADMIN_PASSWORD"] = "admin-pass-123"
 os.environ["OVERHUB_HEALTH_TIMEOUT_SECONDS"] = "5"
 os.environ["OVERHUB_SCHEDULER_ENABLED"] = "false"
+# pytest's tmp_path dirs live below the system temp dir and are no mounts
+os.environ["OVERHUB_BACKUP_ROOT"] = tempfile.gettempdir()
+os.environ["OVERHUB_REQUIRE_MOUNTED_TARGETS"] = "false"
 
 import pytest
 from fastapi.testclient import TestClient

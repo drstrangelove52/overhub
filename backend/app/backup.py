@@ -115,17 +115,36 @@ def _real_mount(path: str) -> bool:
         return os.path.ismount(path)
 
 
-def target_available(target: BackupTarget) -> bool:
+def check_location(location: str) -> str:
+    """Normalised backup location, or ValueError with a message for the user."""
+    location = location.strip().rstrip("/\\")
+    path = Path(location)
+    root = settings.backup_root
+    if not path.is_absolute() or ".." in path.parts or root not in path.parents:
+        raise ValueError(
+            f"Der Ordner muss unter {root}/ liegen (z.B. {root}/backup für die USB-Disk oder {root}/disk2 für eine "
+            f"zweite Disk) — nur dort sieht OverHub die Disks des Geräts."
+        )
+    data_dir = settings.data_dir.resolve()
+    if path.resolve() == data_dir or data_dir in path.resolve().parents:
+        raise ValueError("Das Ziel darf nicht im OverHub-Datenordner liegen (dieselbe Disk schützt nicht)")
+    return location
+
+
+def target_available(target: BackupTarget, writable: bool = True) -> bool:
+    """writable=False: only reading is needed (taking over an old backup)."""
     location = Path(target.location)
     try:
         os.listdir(location)  # triggers the automount of a plugged-in USB disk
     except OSError:
         return False
+    if not writable:
+        return True
     if not os.access(location, os.W_OK):
         return False
     # A USB disk that is not plugged in leaves the bare mount point behind:
     # writing there would silently fill the system disk instead.
-    if str(location).startswith("/mnt/") and not _real_mount(str(location)):
+    if settings.require_mounted_targets and not _real_mount(str(location)):
         return False
     return True
 

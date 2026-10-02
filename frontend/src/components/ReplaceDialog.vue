@@ -63,7 +63,7 @@ function when(iso) {
 
       <form class="space-y-3" @submit.prevent="scan">
         <div>
-          <label class="mb-1 block text-xs text-gray-400">Wo liegt das Backup? (Backup-Disk mit dem Namen OVERHUB einstecken)</label>
+          <label class="mb-1 block text-xs text-gray-400">Wo liegt das Backup? (Backup-Disk mit dem Namen OVERHUB einstecken — sie erscheint unter /mnt/overhub/backup)</label>
           <input v-model="location" class="input" required />
         </div>
         <div>

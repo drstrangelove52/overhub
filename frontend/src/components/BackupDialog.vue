@@ -12,6 +12,9 @@ const name = ref("");
 const location = ref("");
 const key = ref("");
 const copied = ref(false);
+const keyStep = ref("hidden"); // hidden | show | confirm
+const confirmChars = ref("");
+const keyError = ref("");
 const showDetails = ref(false);
 
 async function load() {
@@ -65,6 +68,7 @@ async function removeTarget(t) {
 
 async function showKey() {
   key.value = (await api("/backup/key")).key;
+  keyStep.value = "show";
 }
 
 async function copyKey() {
@@ -74,10 +78,16 @@ async function copyKey() {
 }
 
 async function ackKey() {
-  await api("/backup/key/ack", { method: "POST" });
-  key.value = "";
-  await load();
-  emit("changed");
+  keyError.value = "";
+  try {
+    await api("/backup/key/ack", { method: "POST", body: { confirm: confirmChars.value } });
+    key.value = confirmChars.value = "";
+    keyStep.value = "hidden";
+    await load();
+    emit("changed");
+  } catch (e) {
+    keyError.value = e.message;
+  }
 }
 
 async function runNow() {
@@ -149,11 +159,13 @@ function when(iso) {
           </div>
           <div class="rounded-lg border border-gray-800 p-3">
             <div class="mb-1 font-medium">Anderer Ordner</div>
-            <p v-if="!showFolderForm" class="mb-3 text-xs text-gray-400">Ein Ordner auf dem Gerät, z.B. eine fest eingebaute zweite Disk.</p>
+            <p v-if="!showFolderForm" class="mb-3 text-xs text-gray-400">
+              Eine weitere Disk, eingehängt unter {{ data.usb_path.replace(/\/backup$/, "") }}/… (z.B. …/disk2).
+            </p>
             <button v-if="!showFolderForm" class="btn-secondary" @click="showFolderForm = true">Ordner angeben …</button>
             <form v-else class="space-y-2" @submit.prevent="addTarget({ name, location })">
               <input v-model="name" class="input" placeholder="Name, z.B. Zweite Disk" required />
-              <input v-model="location" class="input" placeholder="Pfad, z.B. /srv/backup" required />
+              <input v-model="location" class="input" placeholder="z.B. /mnt/overhub/disk2" required />
               <div class="flex justify-end gap-2">
                 <button type="button" class="btn-secondary" @click="showFolderForm = false">Abbrechen</button>
                 <button class="btn-primary">Hinzufügen</button>
@@ -175,16 +187,25 @@ function when(iso) {
           Alle Sicherungen sind damit verschlüsselt. Geht das Gerät kaputt, braucht es diesen Schlüssel, um die Daten auf einem
           neuen Gerät wiederherzustellen. Im Passwort-Manager speichern oder ausdrucken.
         </p>
-        <div v-if="key" class="space-y-2 rounded-lg border border-orange-700 bg-orange-900/20 p-3">
+        <div v-if="keyStep === 'show'" class="space-y-2 rounded-lg border border-orange-700 bg-orange-900/20 p-3">
           <div class="flex items-center gap-2">
             <code class="min-w-0 flex-1 break-all rounded bg-gray-950 px-2 py-1">{{ key }}</code>
             <button class="btn-secondary shrink-0" @click="copyKey">{{ copied ? "Kopiert" : "Kopieren" }}</button>
           </div>
           <div class="flex gap-2">
-            <button v-if="!data.key_acknowledged" class="btn-primary" @click="ackKey">Ich habe den Schlüssel gespeichert</button>
-            <button v-else class="btn-secondary" @click="key = ''">Ausblenden</button>
+            <button v-if="!data.key_acknowledged" class="btn-primary" @click="keyStep = 'confirm'">Gespeichert — weiter zur Kontrolle</button>
+            <button v-else class="btn-secondary" @click="keyStep = 'hidden'">Ausblenden</button>
           </div>
         </div>
+        <form v-else-if="keyStep === 'confirm'" class="space-y-2 rounded-lg border border-orange-700 bg-orange-900/20 p-3" @submit.prevent="ackKey">
+          <p>Zur Kontrolle: die <b>letzten 6 Zeichen</b> des Schlüssels aus deinem Passwort-Manager eintippen.</p>
+          <input v-model="confirmChars" class="input max-w-xs font-mono" maxlength="12" autocomplete="off" />
+          <p v-if="keyError" class="text-red-400">{{ keyError }}</p>
+          <div class="flex gap-2">
+            <button class="btn-primary" :disabled="confirmChars.trim().length < 6">Bestätigen</button>
+            <button type="button" class="btn-secondary" @click="keyStep = 'show'">Schlüssel nochmals anzeigen</button>
+          </div>
+        </form>
         <button v-else class="btn-secondary" @click="showKey">Schlüssel anzeigen</button>
       </section>
 

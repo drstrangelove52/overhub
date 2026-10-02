@@ -89,6 +89,8 @@ def test_backup_now_to_target(admin, host, tmp_path):
 
 def test_targets_validation_and_availability(admin, host, tmp_path):
     assert admin.post("/api/backup/targets", json={"name": "x", "location": "relativ/pfad"}).status_code == 400
+    r = admin.post("/api/backup/targets", json={"name": "x", "location": "/srv/backup"})  # container can't see it
+    assert r.status_code == 400 and "muss unter" in r.json()["detail"]
     inside = settings.data_dir / "sub"
     assert admin.post("/api/backup/targets", json={"name": "x", "location": str(inside)}).status_code == 400
     missing = _add_target(admin, tmp_path / "gibt-es-nicht")
@@ -110,7 +112,10 @@ def test_recovery_key(admin, host):
     key = admin.get("/api/backup/key").json()["key"]
     assert len(key) >= 40 and key == backup.recovery_key()
     assert admin.get("/api/backup").json()["key_acknowledged"] is False
-    admin.post("/api/backup/key/ack")
+    assert admin.post("/api/backup/key/ack", json={"confirm": "abc"}).status_code == 400  # too short
+    assert admin.post("/api/backup/key/ack", json={"confirm": "x" + key[-7:]}).status_code == 400  # wrong
+    assert admin.get("/api/backup").json()["key_acknowledged"] is False
+    assert admin.post("/api/backup/key/ack", json={"confirm": key[-6:]}).status_code == 200
     assert admin.get("/api/backup").json()["key_acknowledged"] is True
 
 

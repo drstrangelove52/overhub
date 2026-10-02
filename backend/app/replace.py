@@ -31,8 +31,11 @@ def repo_for(location: str) -> Path:
 
 def scan(location: str, key: str) -> list[dict]:
     """OverHub snapshots in <location>/overhub, readable with key. Newest first."""
-    target = BackupTarget(name="scan", location=location.rstrip("/"))
-    if not backup.target_available(target):
+    try:
+        location = backup.check_location(location)
+    except ValueError as exc:
+        raise ReplaceError(str(exc))
+    if not backup.target_available(BackupTarget(name="scan", location=location), writable=False):
         raise ReplaceError("Ordner nicht erreichbar. Ist die Backup-Disk eingesteckt?")
     repo = repo_for(location)
     if not (repo / "config").exists():
