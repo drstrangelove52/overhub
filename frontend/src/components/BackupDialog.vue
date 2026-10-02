@@ -106,7 +106,7 @@ function when(iso) {
             <input v-model="name" class="input" placeholder="Name, z.B. USB-Disk" required />
             <button type="button" class="btn-secondary shrink-0" @click="useUsb">USB-Disk</button>
           </div>
-          <input v-model="location" class="input" placeholder="Ordner auf dem Gerät, z.B. /mnt/overhub-backup" required />
+          <input v-model="location" class="input" placeholder="Ordner auf dem Gerät, z.B. /mnt/overhub/backup" required />
           <p class="text-xs text-gray-500">
             USB-Disk: am Computer in <b>OVERHUB</b> umbenennen (Windows: Rechtsklick → Umbenennen), dann am Gerät einstecken.
             Sie erscheint automatisch unter {{ data.usb_path }}.

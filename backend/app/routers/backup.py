@@ -13,7 +13,7 @@ from app.routers.auth import current_user
 
 router = APIRouter(prefix="/api/backup", tags=["backup"], dependencies=[Depends(current_user)])
 
-USB_PATH = "/mnt/overhub-backup"
+USB_PATH = "/mnt/overhub/backup"
 
 
 class TargetIn(BaseModel):
@@ -58,7 +58,7 @@ def add_target(body: TargetIn, db: DbSession = Depends(get_db)):
     location = body.location.strip().rstrip("/\\") or "/"
     path = Path(location)
     if not path.is_absolute() or ".." in path.parts:
-        raise HTTPException(400, "Bitte einen absoluten Pfad angeben, z.B. /mnt/overhub-backup")
+        raise HTTPException(400, "Bitte einen absoluten Pfad angeben, z.B. /mnt/overhub/backup")
     data_dir = settings.data_dir.resolve()
     if path.resolve() == data_dir or data_dir in path.resolve().parents:
         raise HTTPException(400, "Das Ziel darf nicht im OverHub-Datenordner liegen (dieselbe Disk schützt nicht)")

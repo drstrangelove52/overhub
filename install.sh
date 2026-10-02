@@ -9,12 +9,15 @@
 # die Version dieses Installers gebracht.
 set -euo pipefail
 
-OVERHUB_VERSION="${OVERHUB_VERSION:-0.2.0}"
+OVERHUB_VERSION="${OVERHUB_VERSION:-0.2.1}"
 OVERHUB_IMAGE="ghcr.io/drstrangelove52/overhub"
 DATA=/opt/overhub
 PORT_INTERNAL=10443
 USB_LABEL=OVERHUB
-USB_MOUNT=/mnt/overhub-backup
+# The container binds the parent dir: binding the automount point itself fails
+# with "no such device" while no disk is plugged in, and OverHub would not start.
+USB_PARENT=/mnt/overhub
+USB_MOUNT=$USB_PARENT/backup
 
 bold() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 info() { printf '  %s\n' "$*"; }
@@ -116,10 +119,16 @@ else
   info "bestehende Einstellungen bleiben (overhub.env)"
 fi
 # Backup-Disk: jede USB-Disk mit dem Namen OVERHUB wird beim ersten Zugriff
-# unter /mnt/overhub-backup eingehängt (nofail: ohne Disk startet das Gerät
+# unter /mnt/overhub/backup eingehängt (nofail: ohne Disk startet das Gerät
 # normal). OVERHUB statt längerem Namen: FAT32 erlaubt nur 11 Zeichen.
 mkdir -p "$USB_MOUNT"
-if ! grep -q "LABEL=${USB_LABEL} " /etc/fstab; then
+if ! grep -q "^LABEL=${USB_LABEL} ${USB_MOUNT} " /etc/fstab; then
+  # older OverHub 0.2.0 used /mnt/overhub-backup
+  if grep -q "^LABEL=${USB_LABEL} " /etc/fstab; then
+    old="$(awk -v l="LABEL=${USB_LABEL}" '$1 == l { print $2; exit }' /etc/fstab)"
+    sed -i "/^LABEL=${USB_LABEL} /d" /etc/fstab
+    umount "$old" 2>/dev/null || true
+  fi
   printf 'LABEL=%s %s auto nofail,x-systemd.automount,x-systemd.idle-timeout=600,x-systemd.device-timeout=5s 0 0\n' \
     "$USB_LABEL" "$USB_MOUNT" >>/etc/fstab
   systemctl daemon-reload
@@ -141,7 +150,7 @@ services:
       - /var/run/tailscale:/var/run/tailscale
       - ${DATA}:${DATA}
       # rslave: a USB disk mounted later on the host shows up in the container
-      - ${USB_MOUNT}:${USB_MOUNT}:rslave
+      - ${USB_PARENT}:${USB_PARENT}:rslave
 EOF
 
 bold "4/5 OverHub ${OVERHUB_VERSION} starten"

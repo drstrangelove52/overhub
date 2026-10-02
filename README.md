@@ -29,7 +29,7 @@ Danach in Tailscale bei diesem Gerät **„Disable key expiry“** wählen, sons
 - **Katalog**: App wählen, installieren. OverHub erzeugt alle Passwörter selbst, zeigt die Zugangsdaten einmal an und richtet die App unter einem festen Port ein (z.B. OverCook `https://<gerät>…ts.net:8443`)
 - **Update**, **Logs**, **Starten/Stoppen** pro App
 
-**Backup**: jede Nacht um 03:00 auf eine USB-Disk mit dem Namen `OVERHUB` (erscheint unter `/mnt/overhub-backup`) oder einen anderen Ordner, verschlüsselt mit [restic](https://restic.net), behalten werden 7 tägliche, 4 wöchentliche und 6 monatliche Stände. Der Wiederherstellungs-Schlüssel wird im UI angezeigt und gehört in den Passwort-Manager.
+**Backup**: jede Nacht um 03:00 auf eine USB-Disk mit dem Namen `OVERHUB` (erscheint unter `/mnt/overhub/backup`) oder einen anderen Ordner, verschlüsselt mit [restic](https://restic.net), behalten werden 7 tägliche, 4 wöchentliche und 6 monatliche Stände. Der Wiederherstellungs-Schlüssel wird im UI angezeigt und gehört in den Passwort-Manager.
 
 **Update mit Rollback**: vor jedem Update sichert OverHub die App zusätzlich auf dem Gerät selbst (`/opt/overhub/safety`, auch ohne Backup-Ziel). Wird die neue Version nicht gesund, spielt OverHub die alte Konfiguration und die Daten zurück und startet die alte Version.
 
