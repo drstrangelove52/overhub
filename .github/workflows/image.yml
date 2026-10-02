@@ -1,0 +1,74 @@
+# Builds ghcr.io/drstrangelove52/overhub on a v1.2.3 tag (linux/amd64 + linux/arm64).
+# The frontend builds on the build platform; arm64 under QEMU only installs wheels.
+name: Image
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/drstrangelove52/overhub
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Backend tests
+        working-directory: backend
+        run: |
+          pip install -r requirements-dev.txt
+          pytest -q
+      - name: Installer syntax
+        run: bash -n install.sh
+
+  image:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: type=semver,pattern={{version}}
+
+      # A published version is never overwritten (Over-App-Vertrag, rule 1)
+      - name: Version still free?
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:${{ steps.meta.outputs.version }}" >/dev/null 2>&1; then
+            echo "::error::$IMAGE:${{ steps.meta.outputs.version }} already exists. Tag a new version."
+            exit 1
+          fi
+
+      - name: Installer pins this version
+        run: grep -q "^OVERHUB_VERSION=\"\${OVERHUB_VERSION:-${{ steps.meta.outputs.version }}}\"" install.sh
+
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          build-args: APP_VERSION=${{ steps.meta.outputs.version }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          push: true
+
+      - name: Digest
+        run: echo "${IMAGE}:${{ steps.meta.outputs.version }} ${{ steps.build.outputs.digest }}" >> "$GITHUB_STEP_SUMMARY"

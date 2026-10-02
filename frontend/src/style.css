@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Avoids a white flash before Vue mounts. */
+html {
+  background-color: #030712;
+}
+
+@layer components {
+  .btn {
+    @apply rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-orange-500 text-gray-950 hover:bg-orange-400;
+  }
+  .btn-secondary {
+    @apply btn border border-gray-700 bg-gray-800 text-gray-100 hover:bg-gray-700;
+  }
+  .input {
+    @apply w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-orange-400 focus:outline-none;
+  }
+  .card {
+    @apply rounded-xl border border-gray-800 bg-gray-900;
+  }
+}

@@ -1,0 +1,101 @@
+# OverCook under OverHub (see the Over-App-Vertrag). Images only, no build,
+# no Caddy: the frontend publishes one loopback port that `tailscale serve`
+# targets (https :8443 -> http://127.0.0.1:18443). Copied to
+# catalog/overcook/compose.yml in the OverHub repo on release.
+#
+# The VM deployment (overcook01) keeps using docker-compose.yml — this file
+# is not used there.
+#
+# OverHub writes .env next to this file: APP_VERSION, APP_INTERNAL_PORT,
+# APP_PUBLIC_URL, TZ plus the secrets/settings from the catalog manifest.
+# For a manual test see .env.overhub.example.
+name: overcook
+
+services:
+  frontend:
+    image: ghcr.io/drstrangelove52/overcook-frontend:${APP_VERSION}
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Zurich}
+    ports:
+      - "127.0.0.1:${APP_INTERNAL_PORT}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  backend:
+    image: ghcr.io/drstrangelove52/overcook-backend:${APP_VERSION}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - images_data:/app/images
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # Optional component: only started with COMPOSE_PROFILES=mcp. Needs
+  # MCP_API_KEY, MCP_SERVICE_USERNAME and MCP_SERVICE_PASSWORD in .env; the
+  # backend creates the service user on start (app.bootstrap).
+  mcp:
+    image: ghcr.io/drstrangelove52/overcook-mcp:${APP_VERSION}
+    profiles: [mcp]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8100), 4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Zurich}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  db_data:
+  images_data:
+
+networks:
+  internal:

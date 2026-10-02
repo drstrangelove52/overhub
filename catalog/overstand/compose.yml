@@ -1,0 +1,13 @@
+# OverStand unter OverHub (Over-App-Vertrag). Wird bei einem Release nach
+# catalog/overstand/compose.yml im OverHub-Repo kopiert.
+# APP_VERSION, APP_INTERNAL_PORT (18447) und TZ setzt OverHub.
+name: overstand
+
+services:
+  frontend:
+    image: ghcr.io/drstrangelove52/overstand-frontend:${APP_VERSION}
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Europe/Zurich}
+    ports:
+      - "127.0.0.1:${APP_INTERNAL_PORT}:80"

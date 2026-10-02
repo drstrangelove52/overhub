@@ -1,0 +1,19 @@
+# Over-App-Vertrag, Manifest-Format schema 1. compose.yml ist eine Kopie von
+# compose.overhub.yml aus dem (privaten) Repo drstrangelove52/overstand.
+schema: 1
+id: overstand
+name: OverStand
+description: Fahrradständer aus Kantholz berechnen, Bauanleitung als PDF
+version: 0.1.0
+min_overhub: 0.1.0
+port: 8447
+arch: [amd64, arm64]
+min_ram_mb: 64
+pwa: false
+
+images:
+  ghcr.io/drstrangelove52/overstand-frontend: sha256:81bd73244a01a99deb7bd6e7e2dc0c2818377fa85af769c7693bcd717c246140
+
+health: /api/health
+version_endpoint: /api/version
+backup: none   # Einstellungen liegen im Browser (localStorage)

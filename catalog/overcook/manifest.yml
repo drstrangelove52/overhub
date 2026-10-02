@@ -1,0 +1,63 @@
+# Over-App-Vertrag, Manifest-Format schema 1 (siehe second-brain
+# "04 Ressourcen/Over-App-Vertrag"). compose.yml ist eine Kopie von
+# compose.overhub.yml aus dem (privaten) Repo drstrangelove52/overcook.
+schema: 1
+id: overcook
+name: OverCook
+description: Rezepte sammeln und skalieren, Einkaufsliste offline auf dem Handy
+version: 0.1.2
+min_overhub: 0.1.0
+port: 8443
+arch: [amd64, arm64]
+min_ram_mb: 1024
+pwa: true
+icon: icon.png
+
+images:
+  ghcr.io/drstrangelove52/overcook-backend: sha256:9d482e03779b67d7f6a90516d5edee7079907f13a2125b3ba4afb3e83ebdce82
+  ghcr.io/drstrangelove52/overcook-frontend: sha256:35a1f3ad221249826fe533d1ff2c876b5e01946df5b3de1453d16094db7941b5
+  ghcr.io/drstrangelove52/overcook-mcp: sha256:b81902e05317828417a5879bec5e852d1cc669e7c7dce6459064d1f7327c268d
+
+env:
+  generated:
+    - { name: MYSQL_ROOT_PASSWORD, generate: password }
+    - { name: MYSQL_PASSWORD, generate: password }
+    - { name: SESSION_SECRET, generate: token }
+    - { name: ADMIN_PASSWORD, generate: password, show_once: true }
+  fixed:
+    MYSQL_DATABASE: overcook
+    MYSQL_USER: overcook
+    SESSION_COOKIE_NAME: overcook_session
+    SESSION_COOKIE_SECURE: "true"
+  settings:
+    - name: ADMIN_USERNAME
+      label: Benutzername des ersten Admins
+      default: admin
+      only_at_install: true
+
+components:
+  mcp:
+    label: MCP-Server für Claude
+    description: Erlaubt Claude, Rezepte anzulegen und zu suchen (unter /mcp)
+    default: false
+    env:
+      generated:
+        - { name: MCP_API_KEY, generate: token, show_once: true }
+        - { name: MCP_SERVICE_PASSWORD, generate: password }
+      fixed:
+        MCP_SERVICE_USERNAME: mcp-agent
+
+admin:
+  mode: env
+
+health: /api/health
+version_endpoint: /api/version
+
+backup:
+  dump:
+    service: db
+    command: sh -c 'exec mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --databases "$MYSQL_DATABASE"'
+  restore:
+    service: db
+    command: sh -c 'exec mariadb -uroot -p"$MYSQL_ROOT_PASSWORD"'
+  volumes: [images_data]
