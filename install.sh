@@ -9,10 +9,12 @@
 # die Version dieses Installers gebracht.
 set -euo pipefail
 
-OVERHUB_VERSION="${OVERHUB_VERSION:-0.1.4}"
+OVERHUB_VERSION="${OVERHUB_VERSION:-0.2.0}"
 OVERHUB_IMAGE="ghcr.io/drstrangelove52/overhub"
 DATA=/opt/overhub
 PORT_INTERNAL=10443
+USB_LABEL=OVERHUB
+USB_MOUNT=/mnt/overhub-backup
 
 bold() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 info() { printf '  %s\n' "$*"; }
@@ -113,6 +115,17 @@ EOF
 else
   info "bestehende Einstellungen bleiben (overhub.env)"
 fi
+# Backup-Disk: jede USB-Disk mit dem Namen OVERHUB wird beim ersten Zugriff
+# unter /mnt/overhub-backup eingehängt (nofail: ohne Disk startet das Gerät
+# normal). OVERHUB statt längerem Namen: FAT32 erlaubt nur 11 Zeichen.
+mkdir -p "$USB_MOUNT"
+if ! grep -q "LABEL=${USB_LABEL} " /etc/fstab; then
+  printf 'LABEL=%s %s auto nofail,x-systemd.automount,x-systemd.idle-timeout=600,x-systemd.device-timeout=5s 0 0\n' \
+    "$USB_LABEL" "$USB_MOUNT" >>/etc/fstab
+  systemctl daemon-reload
+  systemctl restart local-fs.target 2>/dev/null || true
+  info "Backup-Disk: USB-Disk mit dem Namen ${USB_LABEL} wird unter ${USB_MOUNT} verwendet"
+fi
 printf 'OVERHUB_VERSION=%s\n' "$OVERHUB_VERSION" >"$DATA/.env"
 cat >"$DATA/compose.yml" <<EOF
 # Von install.sh geschrieben — wird bei jedem Lauf ersetzt.
@@ -127,6 +140,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/run/tailscale:/var/run/tailscale
       - ${DATA}:${DATA}
+      # rslave: a USB disk mounted later on the host shows up in the container
+      - ${USB_MOUNT}:${USB_MOUNT}:rslave
 EOF
 
 bold "4/5 OverHub ${OVERHUB_VERSION} starten"

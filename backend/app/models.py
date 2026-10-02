@@ -37,6 +37,36 @@ class InstalledApp(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class BackupTarget(Base):
+    """A restic repository location. 3a: a host directory (USB disk mount point
+    or any path); SFTP and S3 follow later."""
+
+    __tablename__ = "backup_target"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(64))
+    location: Mapped[str] = mapped_column(String(255))  # directory; the repo lives in <location>/overhub
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class BackupStatus(Base):
+    """Last result per app (and "_overhub" for OverHub itself) for the UI warnings."""
+
+    __tablename__ = "backup_status"
+
+    app_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Setting(Base):
+    __tablename__ = "setting"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+
+
 class Job(Base):
     """A long-running action (install/update/start/stop) with its own log."""
 

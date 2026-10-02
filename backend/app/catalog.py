@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.config import settings
 
@@ -39,6 +39,17 @@ class Component(BaseModel):
     env: EnvSpec = EnvSpec()
 
 
+class BackupCommand(BaseModel):
+    service: str
+    command: str  # run as `docker compose exec -T <service> <command>` (shlex-split)
+
+
+class BackupSpec(BaseModel):
+    dump: BackupCommand | None = None  # writes the dump to stdout
+    restore: BackupCommand | None = None  # reads the dump from stdin
+    volumes: list[str] = []  # compose volume names with user data besides the dump
+
+
 class Manifest(BaseModel):
     schema_: int = Field(alias="schema")
     id: str
@@ -56,6 +67,12 @@ class Manifest(BaseModel):
     components: dict[str, Component] = {}
     health: str = "/api/health"
     version_endpoint: str = "/api/version"
+    backup: BackupSpec | None = None  # None: no server-side data (manifest says `backup: none`)
+
+    @field_validator("backup", mode="before")
+    @classmethod
+    def _backup_none(cls, value):
+        return None if value in (None, "none") else value
 
     @property
     def internal_port(self) -> int:

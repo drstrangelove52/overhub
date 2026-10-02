@@ -13,7 +13,7 @@ from pathlib import Path
 
 import httpx
 
-from app import docker_ops, tailscale_ops
+from app import backup, docker_ops, tailscale_ops
 from app.catalog import Manifest, get_manifest, version_tuple
 from app.config import settings
 from app.database import SessionLocal
@@ -270,13 +270,30 @@ def update(log, app_id: str) -> dict | None:
         raise OperationError(f"{manifest.name} {old_version} ist bereits aktuell")
     preflight(manifest, log)
     log(f"Update {manifest.name} {old_version} → {manifest.version}")
-    log("Hinweis: automatisches Backup und Rollback kommen erst mit Etappe 3")
-
     directory = app_dir(app_id)
+
+    # Hard rule: never update without a backup. The safety repo on the device
+    # makes the rollback below possible even without a configured target.
+    snapshot_id = None
+    if manifest.backup:
+        log("Sicherung vor dem Update …")
+        try:
+            done = backup.backup_app(app_id, "pre-update", log, safety=True, targets=True)
+        except backup.BackupError as exc:
+            raise OperationError(f"Sicherung fehlgeschlagen, Update abgebrochen (nichts verändert): {exc}")
+        snapshot_id = done.get(str(backup.safety_repo()))
+    old_compose = (directory / "compose.yml").read_bytes()
+    old_env = read_env(directory / ".env")
+
     shutil.copyfile(manifest.compose_file, directory / "compose.yml")
-    env, credentials = build_env(manifest, {}, components, read_env(directory / ".env"))
+    env, credentials = build_env(manifest, {}, components, old_env)
     write_env(directory / ".env", env)
-    _pull_verify_up(manifest, log)
+    try:
+        _pull_verify_up(manifest, log)
+    except OperationError as exc:
+        log(f"Update fehlgeschlagen: {exc}")
+        _rollback(manifest, old_version, old_compose, old_env, snapshot_id, log)
+        raise OperationError(f"Update auf {manifest.version} fehlgeschlagen, {manifest.name} läuft wieder mit {old_version}")
 
     db = SessionLocal()
     try:
@@ -287,6 +304,28 @@ def update(log, app_id: str) -> dict | None:
     finally:
         db.close()
     return credentials or None
+
+
+def _rollback(manifest: Manifest, old_version: str, old_compose: bytes, old_env: dict[str, str],
+              snapshot_id: str | None, log) -> None:
+    """Back to the previous version: old compose/.env, data from the pre-update
+    snapshot (migrations of the new version may already have run), start, wait.
+    Only rolling back the image would leave a newer schema behind (contract rule 5)."""
+    directory = app_dir(manifest.id)
+    log(f"Rollback auf {old_version} …")
+    try:
+        (directory / "compose.yml").write_bytes(old_compose)
+        write_env(directory / ".env", old_env)
+        if snapshot_id:
+            backup.restore_app(manifest.id, backup.safety_repo(), snapshot_id, log)
+        result = docker_ops.compose(directory, "up", "-d", "--remove-orphans")
+        if not result.ok:
+            raise OperationError(result.output[-2000:])
+        wait_healthy(manifest, log)
+        log(f"Rollback erfolgreich, {manifest.name} {old_version} läuft")
+    except (OperationError, backup.BackupError) as exc:
+        hint = f" Die Sicherung vor dem Update ist Snapshot {snapshot_id} in {backup.safety_repo()}." if snapshot_id else ""
+        raise OperationError(f"Update UND Rollback fehlgeschlagen: {exc}.{hint}")
 
 
 def start(log, app_id: str) -> None:

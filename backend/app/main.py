@@ -10,17 +10,20 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app import operations, tailscale_ops
+from app import operations, scheduler, tailscale_ops
 from app.bootstrap import init_db
 from app.config import settings
 from app.database import get_db
 from app.routers.apps import router as apps_router
 from app.routers.auth import current_user, limiter, router as auth_router
+from app.routers.backup import router as backup_router
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
+    if settings.scheduler_enabled:
+        scheduler.start()
     yield
 
 
@@ -31,6 +34,7 @@ app.add_middleware(SlowAPIMiddleware)
 
 app.include_router(auth_router)
 app.include_router(apps_router)
+app.include_router(backup_router)
 
 
 @app.get("/api/health")

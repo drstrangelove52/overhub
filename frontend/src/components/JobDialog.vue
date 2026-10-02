@@ -12,7 +12,7 @@ const logEl = ref(null);
 const copied = ref("");
 let timer;
 
-const actions = { install: "Installation", update: "Update", start: "Start", stop: "Stopp", uninstall: "Entfernen" };
+const actions = { install: "Installation", update: "Update", start: "Start", stop: "Stopp", uninstall: "Entfernen", backup: "Backup" };
 
 async function poll() {
   try {
@@ -49,7 +49,7 @@ function close() {
 </script>
 
 <template>
-  <ModalShell :title="job ? `${actions[job.action] || job.action}: ${job.app_id}` : 'Aktion'" wide @close="close">
+  <ModalShell :title="job ? (job.app_id.startsWith('_') ? actions[job.action] || job.action : `${actions[job.action] || job.action}: ${job.app_id}`) : 'Aktion'" wide @close="close">
     <div class="space-y-4">
       <div class="flex items-center gap-2 text-sm">
         <span v-if="!job || job.status === 'running'" class="text-blue-300">Läuft …</span>

@@ -56,7 +56,9 @@ version_endpoint: /api/version
 backup:
   dump:
     service: db
-    command: sh -c 'exec mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --databases "$MYSQL_DATABASE"'
+    # --add-drop-database: a restore (e.g. rollback after a failed update) must
+    # also remove tables a newer version's migration created.
+    command: sh -c 'exec mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --add-drop-database --databases "$MYSQL_DATABASE"'
   restore:
     service: db
     command: sh -c 'exec mariadb -uroot -p"$MYSQL_ROOT_PASSWORD"'

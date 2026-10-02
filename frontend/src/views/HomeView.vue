@@ -6,6 +6,7 @@ import JobDialog from "../components/JobDialog.vue";
 import LogsDialog from "../components/LogsDialog.vue";
 import SettingsDialog from "../components/SettingsDialog.vue";
 import UninstallDialog from "../components/UninstallDialog.vue";
+import BackupDialog from "../components/BackupDialog.vue";
 
 defineProps({ user: Object });
 defineEmits(["logout"]);
@@ -18,11 +19,13 @@ const jobId = ref(null);
 const logsFor = ref(null);
 const showSettings = ref(false);
 const removing = ref(null);
+const showBackup = ref(false);
+const backupInfo = ref(null);
 let timer;
 
 async function load() {
   try {
-    [apps.value, system.value] = await Promise.all([api("/apps"), api("/system")]);
+    [apps.value, system.value, backupInfo.value] = await Promise.all([api("/apps"), api("/system"), api("/backup")]);
     error.value = "";
   } catch (e) {
     error.value = e.message;
@@ -51,6 +54,16 @@ const warnings = computed(() => {
       list.push(
         `Der Tailscale-Schlüssel dieses Geräts läuft in ${days} Tagen ab. In der Tailscale-Adminkonsole bei diesem Gerät „Disable key expiry“ wählen, sonst ist OverHub danach nicht mehr erreichbar.`,
       );
+  }
+  const b = backupInfo.value;
+  if (b?.targets.length) {
+    for (const t of b.targets.filter((t) => !t.available))
+      list.push(`Backup-Ziel „${t.name}“ ist nicht verfügbar (${t.location}). USB-Disk eingesteckt?`);
+    if (b.overdue.length) {
+      const names = b.apps.filter((a) => b.overdue.includes(a.id)).map((a) => a.name);
+      list.push(`Kein erfolgreiches Backup in den letzten 2 Tagen: ${names.join(", ")}.`);
+    }
+    if (!b.key_acknowledged) list.push("Der Wiederherstellungs-Schlüssel für die Backups ist noch nicht gesichert (Backup → Schlüssel anzeigen).");
   }
   return list;
 });
@@ -97,6 +110,7 @@ function statusOf(app) {
         </div>
         <div class="flex items-center gap-2 text-sm">
           <span class="hidden text-gray-400 sm:inline">{{ user.username }}</span>
+          <button class="btn-secondary" @click="showBackup = true">Backup</button>
           <button class="btn-secondary" @click="showSettings = true">Einstellungen</button>
           <button class="btn-secondary" @click="$emit('logout')">Abmelden</button>
         </div>
@@ -106,6 +120,9 @@ function statusOf(app) {
     <main class="mx-auto max-w-4xl space-y-6 px-4 py-6">
       <div v-for="w in warnings" :key="w" class="rounded-lg border border-yellow-700 bg-yellow-900/30 p-3 text-sm text-yellow-200">{{ w }}</div>
       <div v-if="error" class="rounded-lg border border-red-800 bg-red-900/30 p-3 text-sm text-red-300">{{ error }}</div>
+      <div v-if="backupInfo && !backupInfo.targets.length && installed.length" class="rounded-lg border border-gray-800 p-3 text-sm text-gray-400">
+        Noch kein Backup-Ziel eingerichtet. <button class="text-orange-400 hover:underline" @click="showBackup = true">Jetzt einrichten</button>
+      </div>
 
       <section>
         <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-400">Installiert</h2>
@@ -169,6 +186,7 @@ function statusOf(app) {
     <JobDialog v-if="jobId" :job-id="jobId" @close="onJobClosed" />
     <LogsDialog v-if="logsFor" :app="logsFor" @close="logsFor = null" />
     <SettingsDialog v-if="showSettings" :system="system" :user="user" @close="showSettings = false" />
+    <BackupDialog v-if="showBackup" @close="showBackup = false" @changed="load" @started="(id) => { showBackup = false; jobId = id; }" />
     <UninstallDialog v-if="removing" :app="removing" @close="removing = null" @started="onJobStarted" />
   </div>
 </template>

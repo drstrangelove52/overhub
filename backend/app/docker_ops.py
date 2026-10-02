@@ -13,11 +13,14 @@ class ServiceState:
     health: str  # healthy, unhealthy, starting, or "" without a healthcheck
 
 
-def compose(app_dir: Path, *args: str, timeout: int = 900, merge_stderr: bool = True) -> runner.Result:
+def compose(app_dir: Path, *args: str, timeout: int = 900, merge_stderr: bool = True,
+            stdin_path: Path | None = None, stdout_path: Path | None = None) -> runner.Result:
     return runner.run(
         ["docker", "compose", "--project-directory", str(app_dir), "-f", str(app_dir / "compose.yml"), *args],
         timeout=timeout,
         merge_stderr=merge_stderr,
+        stdin_path=stdin_path,
+        stdout_path=stdout_path,
     )
 
 

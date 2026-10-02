@@ -8,14 +8,16 @@ RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
-# Static CLIs from the official images (docker + compose plugin, tailscale).
+# Static CLIs from the official images (docker + compose plugin, tailscale, restic).
 FROM docker:27-cli AS dockercli
 FROM tailscale/tailscale:stable AS tailscale
+FROM restic/restic:0.18.0 AS restic
 
 FROM python:3.12-slim
 COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=dockercli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 COPY --from=tailscale /usr/local/bin/tailscale /usr/local/bin/tailscale
+COPY --from=restic /usr/bin/restic /usr/local/bin/restic
 
 WORKDIR /app
 COPY backend/requirements.txt .

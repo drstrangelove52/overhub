@@ -11,6 +11,7 @@ os.environ["OVERHUB_DATA_DIR"] = str(_DATA)
 os.environ["OVERHUB_SESSION_COOKIE_SECURE"] = "false"
 os.environ["OVERHUB_ADMIN_PASSWORD"] = "admin-pass-123"
 os.environ["OVERHUB_HEALTH_TIMEOUT_SECONDS"] = "5"
+os.environ["OVERHUB_SCHEDULER_ENABLED"] = "false"
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,10 +32,44 @@ class FakeHost:
         self.calls: list[list[str]] = []
         self.digest_ok = True
         self.healthy = True
+        self.unhealthy_version = None  # this APP_VERSION never turns healthy
         self.pulled_version = None
+        self.restic_fail = False
+        self.repos: set[str] = set()
+        self.snapshots: list[tuple[str, str]] = []  # (repo, staged path)
+        self.restic_env: list[dict] = []
 
-    def run(self, cmd, cwd=None, timeout=900, merge_stderr=True):
+    def run(self, cmd, cwd=None, timeout=900, merge_stderr=True, env=None, stdin_path=None, stdout_path=None):
         self.calls.append(cmd)
+        if cmd[0] == "restic":
+            self.restic_env.append(env or {})
+            repo, args = cmd[2], cmd[3:]
+            if self.restic_fail:
+                return runner.Result(1, "", "Fatal: unable to open repository")
+            if args[:2] == ["cat", "config"]:
+                return runner.Result(0 if repo in self.repos else 1, "")
+            if args[:1] == ["init"]:
+                self.repos.add(repo)
+                return runner.Result(0, "created restic repository")
+            if args[:1] == ["backup"]:
+                assert repo in self.repos
+                staged = Path(args[1])
+                if (staged / "dump.sql").exists():
+                    assert (staged / "dump.sql").read_text() == "-- fake dump\n"
+                self.snapshots.append((repo, str(staged)))
+                sid = f"snap{len(self.snapshots)}"
+                return runner.Result(0, json.dumps({"message_type": "status"}) + "\n"
+                                     + json.dumps({"message_type": "summary", "snapshot_id": sid}))
+            if args[:1] == ["restore"]:
+                target = Path(args[args.index("--target") + 1])
+                (target / "volumes").mkdir(parents=True, exist_ok=True)
+                (target / "dump.sql").write_text("-- fake dump\n")
+                return runner.Result(0, "restoring")
+            return runner.Result(0, "[]")  # forget, snapshots
+        if cmd[:2] == ["docker", "run"]:
+            return runner.Result(0, "")  # volume tar in/out
+        if stdout_path is not None:
+            Path(stdout_path).write_text("-- fake dump\n")
         if cmd[:2] == ["tailscale", "status"]:
             return runner.Result(0, json.dumps({
                 "BackendState": "Running",
@@ -64,9 +99,11 @@ class FakeHost:
                 self.pulled_version = env["APP_VERSION"]
                 return runner.Result(0, "")
             if args[:1] == ["ps"]:
-                health = "healthy" if self.healthy else "unhealthy"
-                return runner.Result(0, "\n".join(json.dumps({"Service": s, "State": "running", "Health": health})
-                                                  for s in ("frontend", "backend")))
+                ok = self.healthy and env.get("APP_VERSION") != self.unhealthy_version
+                services = ("frontend", "backend", "db") if app_id == "overcook" else ("frontend",)
+                return runner.Result(0, "\n".join(
+                    json.dumps({"Service": s, "State": "running", "Health": "healthy" if ok or s == "db" else "unhealthy"})
+                    for s in services))
             if args[:1] == ["logs"]:
                 return runner.Result(0, "backend-1 | hello")
             return runner.Result(0, "")

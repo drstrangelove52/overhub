@@ -29,7 +29,11 @@ Danach in Tailscale bei diesem Gerät **„Disable key expiry“** wählen, sons
 - **Katalog**: App wählen, installieren. OverHub erzeugt alle Passwörter selbst, zeigt die Zugangsdaten einmal an und richtet die App unter einem festen Port ein (z.B. OverCook `https://<gerät>…ts.net:8443`)
 - **Update**, **Logs**, **Starten/Stoppen** pro App
 
-Backup/Restore und Rollback bei fehlgeschlagenem Update kommen in einer späteren Version.
+**Backup**: jede Nacht um 03:00 auf eine USB-Disk mit dem Namen `OVERHUB` (erscheint unter `/mnt/overhub-backup`) oder einen anderen Ordner, verschlüsselt mit [restic](https://restic.net), behalten werden 7 tägliche, 4 wöchentliche und 6 monatliche Stände. Der Wiederherstellungs-Schlüssel wird im UI angezeigt und gehört in den Passwort-Manager.
+
+**Update mit Rollback**: vor jedem Update sichert OverHub die App zusätzlich auf dem Gerät selbst (`/opt/overhub/safety`, auch ohne Backup-Ziel). Wird die neue Version nicht gesund, spielt OverHub die alte Konfiguration und die Daten zurück und startet die alte Version.
+
+Export/Import einzelner Apps, NAS (SFTP) und Cloud als Ziel kommen in späteren Versionen.
 
 ## Aufbau
 
@@ -47,6 +51,8 @@ Auf dem Gerät:
 /opt/overhub/
   compose.yml, .env, overhub.env   ← OverHub selbst (von install.sh)
   overhub.db                        ← Zustand
+  backup.key                        ← Wiederherstellungs-Schlüssel der Backups (0600)
+  safety/                           ← Sicherungen vor Updates (für Rollback)
   apps/<app>/compose.yml, .env      ← je App (von OverHub, .env mit Rechten 0600)
 ```
 

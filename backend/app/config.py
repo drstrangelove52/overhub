@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     # pull plus MariaDB init on a Pi takes a few minutes.
     health_timeout_seconds: int = 600
 
+    scheduler_enabled: bool = True  # off in tests
+
     @property
     def apps_dir(self) -> Path:
         return self.data_dir / "apps"
