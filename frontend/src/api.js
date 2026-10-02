@@ -23,3 +23,13 @@ export async function api(path, { method = "GET", body } = {}) {
   }
   return data;
 }
+
+export async function upload(path, file) {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`/api${path}`, { method: "POST", body: form, credentials: "same-origin" });
+  if (res.status === 401) hooks.onUnauthorized();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, typeof data.detail === "string" ? data.detail : `Fehler ${res.status}`);
+  return data;
+}

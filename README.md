@@ -33,7 +33,9 @@ Danach in Tailscale bei diesem Gerät **„Disable key expiry“** wählen, sons
 
 **Update mit Rollback**: vor jedem Update sichert OverHub die App zusätzlich auf dem Gerät selbst (`/opt/overhub/safety`, auch ohne Backup-Ziel). Wird die neue Version nicht gesund, spielt OverHub die alte Konfiguration und die Daten zurück und startet die alte Version.
 
-Export/Import einzelner Apps, NAS (SFTP) und Cloud als Ziel kommen in späteren Versionen.
+**Daten einer App** (Knopf „Daten“): **Exportieren** als eine verschlüsselte `.overhub`-Datei zum Herunterladen (ein restic-Repository mit eigener Passphrase; lässt sich notfalls auch ohne OverHub entpacken und mit `restic restore` öffnen) und **Wiederherstellen** eines gesicherten Stands. Beim **Entfernen** gibt es „Daten exportieren, dann alles löschen“, beim **Installieren** „Daten aus einem Export übernehmen“ — etwa für den Umzug auf ein neues Gerät. Daten einer älteren App-Version lassen sich in eine neuere einspielen, nicht umgekehrt.
+
+NAS (SFTP) und Cloud als Backup-Ziel kommen in einer späteren Version.
 
 ## Aufbau
 

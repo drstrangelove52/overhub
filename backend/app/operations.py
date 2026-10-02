@@ -26,6 +26,10 @@ class OperationError(Exception):
     pass
 
 
+# Keys of a job's return value that are not secret and stay readable (Job.result);
+# everything else is show-once credentials.
+RESULT_KEYS = {"download"}
+
 _busy: set[str] = set()
 _busy_lock = threading.Lock()
 
@@ -76,9 +80,11 @@ def start_job(app_id: str, action: str, target, *args) -> int:
 
     def runner():
         log = JobLog(job_id)
-        status, credentials = "failed", None
+        status, credentials, result = "failed", None, None
         try:
-            credentials = target(log, *args)
+            output = target(log, *args) or {}
+            credentials = {k: v for k, v in output.items() if k not in RESULT_KEYS} or None
+            result = {k: v for k, v in output.items() if k in RESULT_KEYS} or None
             status = "success"
             log("Fertig.")
         except OperationError as exc:
@@ -86,17 +92,23 @@ def start_job(app_id: str, action: str, target, *args) -> int:
         except Exception as exc:  # unexpected: keep the details for support
             log(f"FEHLER (unerwartet): {exc!r}")
         finally:
-            db = SessionLocal()
+            # Release the app even if recording the outcome fails — otherwise
+            # every later action on it would be refused with "läuft bereits".
             try:
-                job = db.get(Job, job_id)
-                job.status = status
-                job.finished_at = utcnow()
-                job.credentials = json.dumps(credentials) if credentials else None
-                db.commit()
+                db = SessionLocal()
+                try:
+                    job = db.get(Job, job_id)
+                    if job is not None:
+                        job.status = status
+                        job.finished_at = utcnow()
+                        job.credentials = json.dumps(credentials) if credentials else None
+                        job.result = json.dumps(result) if result else None
+                        db.commit()
+                finally:
+                    db.close()
             finally:
-                db.close()
-            with _busy_lock:
-                _busy.discard(app_id)
+                with _busy_lock:
+                    _busy.discard(app_id)
 
     threading.Thread(target=runner, name=f"job-{job_id}", daemon=True).start()
     return job_id
@@ -220,7 +232,8 @@ def _pull_verify_up(manifest: Manifest, log) -> None:
     wait_healthy(manifest, log)
 
 
-def install(log, app_id: str, user_settings: dict[str, str], components: list[str]) -> dict | None:
+def install(log, app_id: str, user_settings: dict[str, str], components: list[str],
+            import_id: str | None = None, import_passphrase: str | None = None) -> dict | None:
     manifest = get_manifest(app_id)
     db = SessionLocal()
     try:
@@ -230,14 +243,41 @@ def install(log, app_id: str, user_settings: dict[str, str], components: list[st
         db.close()
     preflight(manifest, log)
 
+    imported = None
+    if import_id:
+        try:
+            imported = backup.open_import(import_id, app_id, import_passphrase or "", log)
+        except backup.BackupError as exc:
+            raise OperationError(str(exc))
+
     directory = app_dir(app_id)
     directory.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(manifest.compose_file, directory / "compose.yml")
-    env, credentials = build_env(manifest, user_settings, components, read_env(directory / ".env") or None)
+    existing = read_env(directory / ".env") or None
+    if imported:
+        # Secrets the data cannot do without (contract rule 7) come along; all others are new.
+        existing = {**(existing or {}), **read_env(imported / "secrets.env")}
+    env, credentials = build_env(manifest, user_settings, components, existing)
     write_env(directory / ".env", env)
     log(f"{directory}/.env geschrieben ({len(env)} Einträge)")
 
     _pull_verify_up(manifest, log)
+
+    if imported:
+        log("Spiele die importierten Daten ein …")
+        try:
+            backup.apply_restore(app_id, imported, log)
+        except backup.BackupError as exc:
+            raise OperationError(f"Import fehlgeschlagen: {exc}")
+        finally:
+            backup.discard_import(import_id)
+        result = docker_ops.compose(directory, "up", "-d")
+        if not result.ok:
+            raise OperationError(result.output[-2000:])
+        wait_healthy(manifest, log)
+        # The imported users replace the freshly bootstrapped admin.
+        credentials = {}
+        log("Import abgeschlossen. Es gelten die Benutzer und Passwörter aus den importierten Daten.")
 
     log(f"Richte tailscale serve ein: https Port {manifest.port} → 127.0.0.1:{manifest.internal_port}")
     result = tailscale_ops.serve(manifest.port, manifest.internal_port)
@@ -336,7 +376,7 @@ def start(log, app_id: str) -> None:
     wait_healthy(manifest, log)
 
 
-def uninstall(log, app_id: str, delete_data: bool) -> None:
+def uninstall(log, app_id: str, delete_data: bool, export_passphrase: str | None = None) -> dict | None:
     """Remove containers and the tailnet port. With delete_data also the
     volumes (database, uploads) and the app dir with its secrets; without it
     .env stays, so a later install reuses the same secrets and finds its data."""
@@ -348,6 +388,13 @@ def uninstall(log, app_id: str, delete_data: bool) -> None:
     finally:
         db.close()
     directory = app_dir(app_id)
+
+    output = None
+    if export_passphrase:
+        try:
+            output = {"download": backup.export_app(app_id, export_passphrase, log)}
+        except backup.BackupError as exc:
+            raise OperationError(f"Export fehlgeschlagen, nichts entfernt: {exc}")
 
     log(f"Entferne HTTPS-Freigabe auf Port {manifest.port}")
     result = tailscale_ops.serve_off(manifest.port)
@@ -373,6 +420,43 @@ def uninstall(log, app_id: str, delete_data: bool) -> None:
         db.commit()
     finally:
         db.close()
+    return output
+
+
+def export(log, app_id: str, passphrase: str) -> dict:
+    try:
+        return {"download": backup.export_app(app_id, passphrase, log)}
+    except backup.BackupError as exc:
+        raise OperationError(str(exc))
+
+
+def restore(log, app_id: str, repo: str, snapshot_id: str) -> None:
+    """Put an app back to a snapshot. The current state is saved first, so a
+    failed restore (or a regretted one) can be undone."""
+    manifest = get_manifest(app_id)
+    directory = app_dir(app_id)
+    log("Sichere den aktuellen Stand …")
+    try:
+        before = backup.backup_app(app_id, "pre-restore", log, safety=True, targets=False)
+    except backup.BackupError as exc:
+        raise OperationError(f"Aktueller Stand konnte nicht gesichert werden, nichts verändert: {exc}")
+    log(f"Stelle Stand {snapshot_id} wieder her …")
+    try:
+        backup.restore_app(app_id, Path(repo), snapshot_id, log, check=True)
+        result = docker_ops.compose(directory, "up", "-d")
+        if not result.ok:
+            raise OperationError(result.output[-2000:])
+        wait_healthy(manifest, log)
+    except (OperationError, backup.BackupError) as exc:
+        log(f"Wiederherstellen fehlgeschlagen: {exc}")
+        safety = before.get(str(backup.safety_repo()))
+        if safety:
+            log("Setze auf den Stand vor dem Wiederherstellen zurück …")
+            backup.restore_app(app_id, backup.safety_repo(), safety, log)
+            docker_ops.compose(directory, "up", "-d")
+            wait_healthy(manifest, log)
+        raise OperationError(f"Wiederherstellen fehlgeschlagen, {manifest.name} läuft mit dem vorherigen Stand: {exc}")
+    log(f"{manifest.name} läuft mit dem wiederhergestellten Stand")
 
 
 def stop(log, app_id: str) -> None:

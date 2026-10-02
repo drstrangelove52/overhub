@@ -18,6 +18,11 @@ from fastapi.testclient import TestClient
 
 from app import runner
 from app.catalog import load_catalog
+
+
+def backup_exports_dir():
+    from app import backup
+    return backup.exports_dir()
 from app.database import Base, engine
 from app.main import app
 from app.routers.auth import limiter
@@ -35,37 +40,75 @@ class FakeHost:
         self.unhealthy_version = None  # this APP_VERSION never turns healthy
         self.pulled_version = None
         self.restic_fail = False
-        self.repos: set[str] = set()
+        self.repos: dict[str, str] = {}  # repo -> password it was created with
         self.snapshots: list[tuple[str, str]] = []  # (repo, staged path)
+        self.snapshot_meta: dict[str, dict] = {}  # snapshot id -> staged meta.json
+        self.snapshot_repo: dict[str, str] = {}
+        self.packed: dict[str, str] = {}  # export file -> password of the packed repo
         self.restic_env: list[dict] = []
 
     def run(self, cmd, cwd=None, timeout=900, merge_stderr=True, env=None, stdin_path=None, stdout_path=None):
         self.calls.append(cmd)
+        if cmd[0] == "tar":
+            if cmd[1] == "-cf":  # pack an export repo
+                Path(cmd[2]).write_bytes(b"fake export")
+                self.packed[cmd[2]] = self.repos[str(Path(cmd[4]))]
+            else:  # tar -xf <upload> -C <repo>
+                upload, repo = cmd[2], str(Path(cmd[4]))
+                source = next((pw for f, pw in self.packed.items() if Path(f).read_bytes() == Path(upload).read_bytes()), None)
+                if source is None:
+                    return runner.Result(2, "tar: not a tar archive")
+                self.repos[repo] = source
+                for sid, r in list(self.snapshot_repo.items()):
+                    if Path(r).parent == backup_exports_dir():
+                        self.snapshot_repo[sid + "x"] = repo
+                        self.snapshot_meta[sid + "x"] = self.snapshot_meta[sid]
+            return runner.Result(0, "")
         if cmd[0] == "restic":
             self.restic_env.append(env or {})
             repo, args = cmd[2], cmd[3:]
+            password = (env or {}).get("RESTIC_PASSWORD")
             if self.restic_fail:
                 return runner.Result(1, "", "Fatal: unable to open repository")
-            if args[:2] == ["cat", "config"]:
-                return runner.Result(0 if repo in self.repos else 1, "")
             if args[:1] == ["init"]:
-                self.repos.add(repo)
+                self.repos[repo] = password
+                Path(repo).mkdir(parents=True, exist_ok=True)
+                (Path(repo) / "config").write_text("fake")
                 return runner.Result(0, "created restic repository")
+            if repo not in self.repos:
+                return runner.Result(1, "", "Fatal: repository does not exist")
+            if self.repos[repo] != password:
+                return runner.Result(1, "", "Fatal: wrong password or no key found")
+            if args[:2] == ["cat", "config"]:
+                return runner.Result(0, "{}")
             if args[:1] == ["backup"]:
-                assert repo in self.repos
                 staged = Path(args[1])
                 if (staged / "dump.sql").exists():
                     assert (staged / "dump.sql").read_text() == "-- fake dump\n"
                 self.snapshots.append((repo, str(staged)))
-                sid = f"snap{len(self.snapshots)}"
+                sid = f"{len(self.snapshots):08x}"
+                self.snapshot_meta[sid] = json.loads((staged / "meta.json").read_text())
+                self.snapshot_repo[sid] = repo
                 return runner.Result(0, json.dumps({"message_type": "status"}) + "\n"
                                      + json.dumps({"message_type": "summary", "snapshot_id": sid}))
+            if args[:1] == ["snapshots"]:
+                app_tag = args[args.index("--tag") + 1] if "--tag" in args else None
+                snaps = [
+                    {"id": sid, "short_id": sid, "time": f"2026-10-02T20:{i:02d}:00Z",
+                     "tags": [f"app:{m.get('app')}", "reason:manual"]}
+                    for i, (sid, m) in enumerate(self.snapshot_meta.items())
+                    if self.snapshot_repo.get(sid) == repo and (app_tag is None or app_tag == f"app:{m.get('app')}")
+                ]
+                return runner.Result(0, json.dumps(snaps))
             if args[:1] == ["restore"]:
+                sid = args[1].split(":", 1)[0]
                 target = Path(args[args.index("--target") + 1])
                 (target / "volumes").mkdir(parents=True, exist_ok=True)
                 (target / "dump.sql").write_text("-- fake dump\n")
+                (target / "meta.json").write_text(json.dumps(self.snapshot_meta.get(sid, {})))
+                (target / "secrets.env").write_text("")
                 return runner.Result(0, "restoring")
-            return runner.Result(0, "[]")  # forget, snapshots
+            return runner.Result(0, "[]")  # forget
         if cmd[:2] == ["docker", "run"]:
             return runner.Result(0, "")  # volume tar in/out
         if stdout_path is not None:
@@ -126,7 +169,8 @@ def host(monkeypatch):
 @pytest.fixture()
 def client():
     Base.metadata.drop_all(engine)
-    shutil.rmtree(_DATA / "apps", ignore_errors=True)
+    for sub in ("apps", "safety", "staging", "exports", "imports", "restore", "cache"):
+        shutil.rmtree(_DATA / sub, ignore_errors=True)
     limiter.reset()
     with TestClient(app) as test_client:  # lifespan creates tables + bootstrap admin
         yield test_client

@@ -12,7 +12,7 @@ const logEl = ref(null);
 const copied = ref("");
 let timer;
 
-const actions = { install: "Installation", update: "Update", start: "Start", stop: "Stopp", uninstall: "Entfernen", backup: "Backup" };
+const actions = { install: "Installation", update: "Update", start: "Start", stop: "Stopp", uninstall: "Entfernen", backup: "Backup", export: "Export", restore: "Wiederherstellen" };
 
 async function poll() {
   try {
@@ -57,6 +57,16 @@ function close() {
         <span v-else class="text-red-300">Fehlgeschlagen</span>
       </div>
       <pre ref="logEl" class="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-gray-950 p-3 text-xs text-gray-300">{{ job?.log }}</pre>
+
+      <div v-if="job?.result?.download" class="rounded-lg border border-green-800 bg-green-900/20 p-3 text-sm">
+        <p class="mb-2 font-semibold text-green-300">Export bereit</p>
+        <a :href="`/api/exports/${job.result.download}`" :download="job.result.download" class="btn-primary inline-block">
+          {{ job.result.download }} herunterladen
+        </a>
+        <p class="mt-2 text-xs text-gray-400">
+          Die Datei bleibt 24 Stunden auf dem Gerät. Zusammen mit der Passphrase aufbewahren — ohne sie lässt sie sich nicht öffnen.
+        </p>
+      </div>
 
       <div v-if="credentials" class="rounded-lg border border-orange-700 bg-orange-900/20 p-3">
         <p class="mb-2 text-sm font-semibold text-orange-300">Zugangsdaten — werden nur jetzt angezeigt</p>

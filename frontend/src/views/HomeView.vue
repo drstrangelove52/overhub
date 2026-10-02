@@ -7,6 +7,7 @@ import LogsDialog from "../components/LogsDialog.vue";
 import SettingsDialog from "../components/SettingsDialog.vue";
 import UninstallDialog from "../components/UninstallDialog.vue";
 import BackupDialog from "../components/BackupDialog.vue";
+import DataDialog from "../components/DataDialog.vue";
 
 defineProps({ user: Object });
 defineEmits(["logout"]);
@@ -20,6 +21,7 @@ const logsFor = ref(null);
 const showSettings = ref(false);
 const removing = ref(null);
 const showBackup = ref(false);
+const dataFor = ref(null);
 const backupInfo = ref(null);
 let timer;
 
@@ -83,6 +85,7 @@ function startInstall(app) {
 function onJobStarted(id) {
   installing.value = null;
   removing.value = null;
+  dataFor.value = null;
   jobId.value = id;
 }
 
@@ -150,6 +153,7 @@ function statusOf(app) {
                 <button v-if="app.update_available" class="btn-primary" :disabled="app.busy" @click="action(app, 'update')">
                   Update auf {{ app.catalog_version }}
                 </button>
+                <button v-if="app.has_backup" class="btn-secondary" :disabled="app.busy" @click="dataFor = app">Daten</button>
                 <button class="btn-secondary" @click="logsFor = app">Logs</button>
                 <button v-if="app.healthy" class="btn-secondary" :disabled="app.busy" @click="action(app, 'stop')">Stoppen</button>
                 <button v-else class="btn-secondary" :disabled="app.busy" @click="action(app, 'start')">Starten</button>
@@ -187,6 +191,7 @@ function statusOf(app) {
     <LogsDialog v-if="logsFor" :app="logsFor" @close="logsFor = null" />
     <SettingsDialog v-if="showSettings" :system="system" :user="user" @close="showSettings = false" />
     <BackupDialog v-if="showBackup" @close="showBackup = false" @changed="load" @started="(id) => { showBackup = false; jobId = id; }" />
+    <DataDialog v-if="dataFor" :app="dataFor" @close="dataFor = null" @started="onJobStarted" />
     <UninstallDialog v-if="removing" :app="removing" @close="removing = null" @started="onJobStarted" />
   </div>
 </template>

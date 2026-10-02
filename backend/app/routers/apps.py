@@ -1,12 +1,17 @@
 import json
+import os
+import re
+import shutil
+import time
+import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from app import docker_ops, operations, tailscale_ops
+from app import backup, docker_ops, operations, tailscale_ops
 from app.catalog import get_manifest, load_catalog, version_tuple
 from app.database import get_db
 from app.envfile import validate_value
@@ -19,6 +24,25 @@ router = APIRouter(prefix="/api", tags=["apps"], dependencies=[Depends(current_u
 class InstallIn(BaseModel):
     settings: dict[str, str] = {}
     components: list[str] = []
+    import_id: str | None = None  # from POST /api/imports
+    import_passphrase: str | None = None
+
+
+class ExportIn(BaseModel):
+    passphrase: str
+
+
+class RestoreIn(BaseModel):
+    repo: str
+    snapshot_id: str
+
+
+MIN_PASSPHRASE = 8
+
+
+def _check_passphrase(value: str | None) -> None:
+    if not value or len(value) < MIN_PASSPHRASE:
+        raise HTTPException(400, f"Die Passphrase braucht mindestens {MIN_PASSPHRASE} Zeichen")
 
 
 def _manifest_or_404(app_id: str):
@@ -58,6 +82,7 @@ def list_apps(db: DbSession = Depends(get_db)):
             "catalog_version": manifest.version,
             "port": manifest.port,
             "has_icon": bool(manifest.icon),
+            "has_backup": manifest.backup is not None,
             "settings": [s.model_dump() for s in manifest.env.settings],
             "components": {k: {"label": c.label, "description": c.description, "default": c.default}
                            for k, c in manifest.components.items()},
@@ -103,7 +128,14 @@ def install(app_id: str, body: InstallIn):
             validate_value(value)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    return _start(app_id, "install", operations.install, app_id, body.settings, body.components)
+    if body.import_id:
+        if not re.fullmatch(r"[0-9a-f]{32}", body.import_id):
+            raise HTTPException(400, "Ungültige Import-ID")
+        _check_passphrase(body.import_passphrase)
+        if manifest.backup is None:
+            raise HTTPException(400, f"{manifest.name} hat keine Daten, die sich importieren liessen")
+    return _start(app_id, "install", operations.install, app_id, body.settings, body.components,
+                  body.import_id, body.import_passphrase)
 
 
 @router.post("/apps/{app_id}/update")
@@ -114,12 +146,76 @@ def update(app_id: str):
 
 class UninstallIn(BaseModel):
     delete_data: bool = False
+    export_passphrase: str | None = None  # export first, then remove
 
 
 @router.post("/apps/{app_id}/uninstall")
 def uninstall(app_id: str, body: UninstallIn):
     _manifest_or_404(app_id)
-    return _start(app_id, "uninstall", operations.uninstall, app_id, body.delete_data)
+    if body.export_passphrase is not None:
+        _check_passphrase(body.export_passphrase)
+    return _start(app_id, "uninstall", operations.uninstall, app_id, body.delete_data, body.export_passphrase)
+
+
+@router.post("/apps/{app_id}/export")
+def export(app_id: str, body: ExportIn, db: DbSession = Depends(get_db)):
+    manifest = _manifest_or_404(app_id)
+    if db.get(InstalledApp, app_id) is None:
+        raise HTTPException(404, "Nicht installiert")
+    if manifest.backup is None:
+        raise HTTPException(400, f"{manifest.name} hat keine Daten auf dem Server")
+    _check_passphrase(body.passphrase)
+    return _start(app_id, "export", operations.export, app_id, body.passphrase)
+
+
+@router.get("/apps/{app_id}/snapshots")
+def app_snapshots(app_id: str, db: DbSession = Depends(get_db)):
+    _manifest_or_404(app_id)
+    if db.get(InstalledApp, app_id) is None:
+        raise HTTPException(404, "Nicht installiert")
+    return backup.list_snapshots(app_id)
+
+
+@router.post("/apps/{app_id}/restore")
+def restore(app_id: str, body: RestoreIn, db: DbSession = Depends(get_db)):
+    _manifest_or_404(app_id)
+    if db.get(InstalledApp, app_id) is None:
+        raise HTTPException(404, "Nicht installiert")
+    known = {str(backup.safety_repo())} | {str(backup.target_repo(t)) for t in backup.list_targets()}
+    if body.repo not in known:  # never restic against an arbitrary path from the request
+        raise HTTPException(400, "Unbekanntes Backup-Ziel")
+    if not re.fullmatch(r"[0-9a-f]{8,64}", body.snapshot_id):
+        raise HTTPException(400, "Ungültige Snapshot-ID")
+    return _start(app_id, "restore", operations.restore, app_id, body.repo, body.snapshot_id)
+
+
+@router.get("/exports/{name}")
+def download_export(name: str):
+    if not re.fullmatch(r"[a-z0-9_-]+-[0-9A-Za-z.x]+-\d{4}-\d{2}-\d{2}-\d{4}\.overhub", name):
+        raise HTTPException(404)
+    path = backup.exports_dir() / name
+    if not path.is_file():
+        raise HTTPException(404, "Export nicht mehr vorhanden (Exporte werden nach 24 Stunden gelöscht)")
+    return FileResponse(path, filename=name, media_type="application/octet-stream")
+
+
+@router.post("/imports")
+def upload_import(file: UploadFile):
+    """Store an uploaded export for a following install with import_id."""
+    if not (file.filename or "").endswith(backup.EXPORT_SUFFIX):
+        raise HTTPException(400, "Bitte eine .overhub-Datei aus einem OverHub-Export wählen")
+    folder = backup.imports_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    cutoff = time.time() - 24 * 3600
+    for old in folder.iterdir():  # abandoned uploads
+        if old.stat().st_mtime < cutoff:
+            shutil.rmtree(old, ignore_errors=True) if old.is_dir() else old.unlink(missing_ok=True)
+    import_id = uuid.uuid4().hex
+    path = folder / f"{import_id}{backup.EXPORT_SUFFIX}"
+    with open(path, "wb") as out:
+        shutil.copyfileobj(file.file, out, length=1024 * 1024)
+    os.chmod(path, 0o600)
+    return {"import_id": import_id, "size": path.stat().st_size}
 
 
 @router.post("/apps/{app_id}/start")
@@ -160,4 +256,5 @@ def job(job_id: int, db: DbSession = Depends(get_db)):
         "status": job.status,
         "log": job.log,
         "credentials": credentials,
+        "result": json.loads(job.result) if job.result else None,
     }

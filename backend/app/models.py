@@ -79,5 +79,7 @@ class Job(Base):
     log: Mapped[str] = mapped_column(Text, default="")
     # Show-once credentials (JSON). Handed out by the first GET after success, then cleared.
     credentials: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Non-secret output that stays readable (e.g. {"download": "<export file>"}).
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

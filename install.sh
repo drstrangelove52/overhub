@@ -9,7 +9,7 @@
 # die Version dieses Installers gebracht.
 set -euo pipefail
 
-OVERHUB_VERSION="${OVERHUB_VERSION:-0.2.2}"
+OVERHUB_VERSION="${OVERHUB_VERSION:-0.3.0}"
 OVERHUB_IMAGE="ghcr.io/drstrangelove52/overhub"
 DATA=/opt/overhub
 PORT_INTERNAL=10443

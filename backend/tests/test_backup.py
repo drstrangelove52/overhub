@@ -124,7 +124,9 @@ def test_scheduler_runs_once_per_night(admin, host, tmp_path):
     assert job_id is not None
     assert wait_job(admin, job_id)["status"] == "success"
     assert scheduler.tick(datetime(2026, 10, 3, 9, 0, tzinfo=tz)) is None  # once per day
-    assert scheduler.tick(datetime(2026, 10, 4, 3, 1, tzinfo=tz)) is not None
+    next_job = scheduler.tick(datetime(2026, 10, 4, 3, 1, tzinfo=tz))
+    assert next_job is not None
+    wait_job(admin, next_job)  # don't leave a job running into the next test
 
 
 def test_same_target_cannot_be_added_twice(admin, host, tmp_path):
