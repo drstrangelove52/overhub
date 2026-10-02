@@ -4,7 +4,7 @@ schema: 1
 id: overstand
 name: OverStand
 description: Fahrradständer aus Kantholz berechnen, Bauanleitung als PDF
-version: 0.1.0
+version: 0.1.1
 min_overhub: 0.1.0
 port: 8447
 arch: [amd64, arm64]
@@ -12,7 +12,7 @@ min_ram_mb: 64
 pwa: false
 
 images:
-  ghcr.io/drstrangelove52/overstand-frontend: sha256:81bd73244a01a99deb7bd6e7e2dc0c2818377fa85af769c7693bcd717c246140
+  ghcr.io/drstrangelove52/overstand-frontend: sha256:6c99e8feda5eba059ced55b954b9adff41f3a828af122220cf5639841447c4c7
 
 health: /api/health
 version_endpoint: /api/version

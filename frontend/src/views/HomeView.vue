@@ -127,6 +127,9 @@ function statusOf(app) {
                 </div>
               </div>
               <div class="flex flex-wrap gap-2">
+                <button v-if="app.pending_credentials_job" class="btn bg-yellow-500 text-gray-950 hover:bg-yellow-400" @click="jobId = app.pending_credentials_job">
+                  Zugangsdaten anzeigen
+                </button>
                 <button v-if="app.update_available" class="btn-primary" :disabled="app.busy" @click="action(app, 'update')">
                   Update auf {{ app.catalog_version }}
                 </button>

@@ -146,3 +146,22 @@ def test_uninstall_delete_data(admin, host):
 def test_uninstall_not_installed(admin, host):
     job = wait_job(admin, admin.post("/api/apps/overstand/uninstall", json={}).json()["job_id"])
     assert job["status"] == "failed" and "nicht installiert" in job["log"]
+
+
+def test_unread_credentials_stay_available_on_the_app(admin, host):
+    job_id = admin.post("/api/apps/overcook/install", json={}).json()["job_id"]
+    # The UI was closed while the job ran: wait without reading the job.
+    import time
+    for _ in range(200):
+        if next(a for a in admin.get("/api/apps").json() if a["id"] == "overcook")["installed"]:
+            break
+        time.sleep(0.05)
+    for _ in range(200):
+        app = next(a for a in admin.get("/api/apps").json() if a["id"] == "overcook")
+        if app["pending_credentials_job"]:
+            break
+        time.sleep(0.05)
+    assert app["pending_credentials_job"] == job_id
+    assert admin.get(f"/api/jobs/{job_id}").json()["credentials"]["ADMIN_PASSWORD"]
+    app = next(a for a in admin.get("/api/apps").json() if a["id"] == "overcook")
+    assert app["pending_credentials_job"] is None

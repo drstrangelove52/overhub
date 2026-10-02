@@ -41,6 +41,8 @@ async function copy(key, value) {
 }
 
 function close() {
+  if (job.value?.status === "running" &&
+      !confirm("Die Aktion läuft im Hintergrund weiter. Allfällige Zugangsdaten findest du danach bei der App unter „Zugangsdaten anzeigen“. Schliessen?")) return;
   if (credentials.value && !confirm("Die Zugangsdaten werden nicht noch einmal angezeigt. Hast du sie gespeichert?")) return;
   emit("close");
 }

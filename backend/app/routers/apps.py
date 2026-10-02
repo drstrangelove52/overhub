@@ -39,6 +39,14 @@ def _start(app_id: str, action: str, target, *args) -> dict:
 def list_apps(db: DbSession = Depends(get_db)):
     """Catalog plus install state, one entry per catalog app."""
     installed = {a.id: a for a in db.scalars(select(InstalledApp))}
+    # Show-once credentials nobody has read yet (dialog closed before the job
+    # finished): offer them on the app card until they are fetched once.
+    pending = {
+        job.app_id: job.id
+        for job in db.scalars(
+            select(Job).where(Job.credentials.is_not(None), Job.status != "running").order_by(Job.id)
+        )
+    }
     status = tailscale_ops.status()
     result = []
     for manifest in load_catalog().values():
@@ -57,6 +65,7 @@ def list_apps(db: DbSession = Depends(get_db)):
             "busy": operations.is_busy(manifest.id),
             # Left behind by "remove, keep data": a new install reuses it.
             "data_kept": app is None and (operations.app_dir(manifest.id) / ".env").exists(),
+            "pending_credentials_job": pending.get(manifest.id),
         }
         if app:
             states = docker_ops.ps(operations.app_dir(manifest.id))
