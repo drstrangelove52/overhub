@@ -177,14 +177,24 @@ def snapshot(repo: Path, path: Path, tags: dict[str, str]) -> str:
     raise BackupError("restic hat keine Snapshot-ID gemeldet")
 
 
-def snapshots(repo: Path, app_id: str) -> list[dict]:
-    result = restic(repo, "snapshots", "--json", "--host", "overhub", "--tag", f"app:{app_id}", timeout=300)
+def snapshots(repo: Path, app_id: str, password: str | None = None) -> list[dict]:
+    result = restic(repo, "snapshots", "--json", "--host", "overhub", "--tag", f"app:{app_id}",
+                    timeout=300, password=password)
     if not result.ok:
         return []
     try:
         return json.loads(result.output or "[]")
     except json.JSONDecodeError:
         return []
+
+
+def read_meta(repo: Path, snapshot_id: str, app_id: str, password: str | None = None) -> dict:
+    """meta.json of a snapshot without restoring it."""
+    result = restic(repo, "dump", snapshot_id, str(staging_dir(app_id) / "meta.json"), timeout=300, password=password)
+    try:
+        return json.loads(result.output) if result.ok else {}
+    except json.JSONDecodeError:
+        return {}
 
 
 def forget(repo: Path, policy: list[str]) -> None:
@@ -255,10 +265,16 @@ def stage_overhub(log) -> Path:
     stage = staging_dir(OVERHUB_ID)
     shutil.rmtree(stage, ignore_errors=True)
     stage.mkdir(parents=True)
+    db = SessionLocal()
+    try:
+        apps = [{"id": a.id, "version": a.version} for a in db.query(InstalledApp).order_by(InstalledApp.id)]
+    finally:
+        db.close()
     (stage / "meta.json").write_text(json.dumps({
         "app": OVERHUB_ID,
         "version": settings.version,
         "created": datetime.now(timezone.utc).isoformat(),
+        "apps": apps,  # shown when replacing a device
     }, indent=2))
     src = sqlite3.connect(settings.data_dir / "overhub.db")
     dst = sqlite3.connect(stage / "overhub.db")

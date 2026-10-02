@@ -8,6 +8,7 @@ import SettingsDialog from "../components/SettingsDialog.vue";
 import UninstallDialog from "../components/UninstallDialog.vue";
 import BackupDialog from "../components/BackupDialog.vue";
 import DataDialog from "../components/DataDialog.vue";
+import ReplaceDialog from "../components/ReplaceDialog.vue";
 
 defineProps({ user: Object });
 defineEmits(["logout"]);
@@ -22,6 +23,7 @@ const showSettings = ref(false);
 const removing = ref(null);
 const showBackup = ref(false);
 const dataFor = ref(null);
+const showReplace = ref(false);
 const backupInfo = ref(null);
 let timer;
 
@@ -83,6 +85,7 @@ function startInstall(app) {
 }
 
 function onJobStarted(id) {
+  showReplace.value = false;
   installing.value = null;
   removing.value = null;
   dataFor.value = null;
@@ -130,6 +133,10 @@ function statusOf(app) {
       <section>
         <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-400">Installiert</h2>
         <p v-if="!installed.length" class="text-sm text-gray-500">Noch keine App installiert.</p>
+        <div v-if="apps.length && !installed.length" class="mt-3 rounded-lg border border-gray-800 p-3 text-sm text-gray-400">
+          Ersetzt dieses Gerät ein altes OverHub?
+          <button class="text-orange-400 hover:underline" @click="showReplace = true">Daten vom alten Gerät übernehmen</button>
+        </div>
         <div class="space-y-3">
           <div v-for="app in installed" :key="app.id" class="card p-4">
             <div class="flex flex-wrap items-start justify-between gap-3">
@@ -191,6 +198,7 @@ function statusOf(app) {
     <LogsDialog v-if="logsFor" :app="logsFor" @close="logsFor = null" />
     <SettingsDialog v-if="showSettings" :system="system" :user="user" @close="showSettings = false" />
     <BackupDialog v-if="showBackup" @close="showBackup = false" @changed="load" @started="(id) => { showBackup = false; jobId = id; }" />
+    <ReplaceDialog v-if="showReplace" @close="showReplace = false" @started="onJobStarted" />
     <DataDialog v-if="dataFor" :app="dataFor" @close="dataFor = null" @started="onJobStarted" />
     <UninstallDialog v-if="removing" :app="removing" @close="removing = null" @started="onJobStarted" />
   </div>

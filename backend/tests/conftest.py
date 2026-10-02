@@ -44,6 +44,7 @@ class FakeHost:
         self.snapshots: list[tuple[str, str]] = []  # (repo, staged path)
         self.snapshot_meta: dict[str, dict] = {}  # snapshot id -> staged meta.json
         self.snapshot_repo: dict[str, str] = {}
+        self.snapshot_files: dict[str, dict[str, bytes]] = {}  # snapshot id -> staged files
         self.packed: dict[str, str] = {}  # export file -> password of the packed repo
         self.restic_env: list[dict] = []
 
@@ -63,6 +64,7 @@ class FakeHost:
                     if Path(r).parent == backup_exports_dir():
                         self.snapshot_repo[sid + "x"] = repo
                         self.snapshot_meta[sid + "x"] = self.snapshot_meta[sid]
+                        self.snapshot_files[sid + "x"] = self.snapshot_files[sid]
             return runner.Result(0, "")
         if cmd[0] == "restic":
             self.restic_env.append(env or {})
@@ -89,6 +91,10 @@ class FakeHost:
                 sid = f"{len(self.snapshots):08x}"
                 self.snapshot_meta[sid] = json.loads((staged / "meta.json").read_text())
                 self.snapshot_repo[sid] = repo
+                self.snapshot_files[sid] = {
+                    str(f.relative_to(staged)).replace("\\", "/"): f.read_bytes()
+                    for f in staged.rglob("*") if f.is_file()
+                }
                 return runner.Result(0, json.dumps({"message_type": "status"}) + "\n"
                                      + json.dumps({"message_type": "summary", "snapshot_id": sid}))
             if args[:1] == ["snapshots"]:
@@ -104,10 +110,13 @@ class FakeHost:
                 sid = args[1].split(":", 1)[0]
                 target = Path(args[args.index("--target") + 1])
                 (target / "volumes").mkdir(parents=True, exist_ok=True)
-                (target / "dump.sql").write_text("-- fake dump\n")
-                (target / "meta.json").write_text(json.dumps(self.snapshot_meta.get(sid, {})))
-                (target / "secrets.env").write_text("")
+                for rel, data in self.snapshot_files.get(sid, {}).items():
+                    (target / rel).parent.mkdir(parents=True, exist_ok=True)
+                    (target / rel).write_bytes(data)
                 return runner.Result(0, "restoring")
+            if args[:1] == ["dump"]:
+                sid, path = args[1], Path(args[2])
+                return runner.Result(0, self.snapshot_files.get(sid, {}).get(path.name, b"").decode())
             return runner.Result(0, "[]")  # forget
         if cmd[:2] == ["docker", "run"]:
             return runner.Result(0, "")  # volume tar in/out

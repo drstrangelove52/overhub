@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DbSession
 
-from app import backup, operations
+from app import backup, operations, replace
 from app.catalog import get_manifest
 from app.config import settings
 from app.database import get_db
@@ -102,3 +102,37 @@ def run_now():
         return {"job_id": operations.start_job("_backup", "backup", lambda log: backup.backup_all(log, "manual"))}
     except operations.OperationError as exc:
         raise HTTPException(409, str(exc))
+
+
+# ---------- replace a device ----------
+
+class ReplaceScanIn(BaseModel):
+    location: str
+    key: str
+
+
+class ReplaceIn(ReplaceScanIn):
+    snapshot_id: str
+
+
+@router.post("/replace/scan")
+def replace_scan(body: ReplaceScanIn):
+    try:
+        return replace.scan(body.location, body.key.strip())
+    except replace.ReplaceError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post("/replace")
+def replace_run(body: ReplaceIn, db: DbSession = Depends(get_db)):
+    if db.query(InstalledApp).count():
+        raise HTTPException(409, "Auf diesem Gerät sind schon Apps installiert")
+    try:
+        replace.scan(body.location, body.key.strip())  # same checks before starting the job
+    except replace.ReplaceError as exc:
+        raise HTTPException(400, str(exc))
+    try:
+        job_id = operations.start_job("_replace", "replace", replace.run, body.location, body.key.strip(), body.snapshot_id)
+    except operations.OperationError as exc:
+        raise HTTPException(409, str(exc))
+    return {"job_id": job_id}

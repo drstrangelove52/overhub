@@ -35,6 +35,8 @@ Danach in Tailscale bei diesem Gerät **„Disable key expiry“** wählen, sons
 
 **Daten einer App** (Knopf „Daten“): **Exportieren** als eine verschlüsselte `.overhub`-Datei zum Herunterladen (ein restic-Repository mit eigener Passphrase; lässt sich notfalls auch ohne OverHub entpacken und mit `restic restore` öffnen) und **Wiederherstellen** eines gesicherten Stands. Beim **Entfernen** gibt es „Daten exportieren, dann alles löschen“, beim **Installieren** „Daten aus einem Export übernehmen“ — etwa für den Umzug auf ein neues Gerät. Daten einer älteren App-Version lassen sich in eine neuere einspielen, nicht umgekehrt.
 
+**Gerät ersetzen**: auf einem neuen Gerät den Installer ausführen, in OverHub „Daten vom alten Gerät übernehmen“ wählen, Backup-Disk einstecken und den Wiederherstellungs-Schlüssel eingeben. OverHub übernimmt Benutzer, Backup-Ziele und alle Apps mit ihren Daten. Tipp: dem neuen Gerät in Tailscale denselben Namen geben wie dem alten, dann bleiben alle Adressen gültig.
+
 NAS (SFTP) und Cloud als Backup-Ziel kommen in einer späteren Version.
 
 ## Aufbau
