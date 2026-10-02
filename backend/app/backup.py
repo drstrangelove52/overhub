@@ -131,8 +131,27 @@ def check_location(location: str) -> str:
     return location
 
 
-def target_available(target: BackupTarget, writable: bool = True) -> bool:
-    """writable=False: only reading is needed (taking over an old backup)."""
+_available_cache: dict[tuple[str, bool], tuple[float, bool]] = {}
+AVAILABLE_CACHE_SECONDS = 30
+
+
+def target_available(target: BackupTarget, writable: bool = True, fresh: bool = False) -> bool:
+    """writable=False: only reading is needed (taking over an old backup).
+
+    Probing a USB automount point without a disk waits for the device timeout,
+    so the answer is kept for 30 s (the UI asks every few seconds). Actions
+    that write (backup, adding a target) pass fresh=True.
+    """
+    key = (target.location, writable)
+    hit = _available_cache.get(key)
+    if not fresh and hit and hit[0] > time.monotonic():
+        return hit[1]
+    result = _probe(target, writable)
+    _available_cache[key] = (time.monotonic() + AVAILABLE_CACHE_SECONDS, result)
+    return result
+
+
+def _probe(target: BackupTarget, writable: bool) -> bool:
     location = Path(target.location)
     try:
         os.listdir(location)  # triggers the automount of a plugged-in USB disk
@@ -352,7 +371,7 @@ def _backup_app(app_id: str, reason: str, log, safety: bool, targets: bool) -> d
             forget(safety_repo(), SAFETY_KEEP)
             log("Sicherheitskopie auf dem Gerät erstellt")
         for target in list_targets() if targets else []:
-            if not target_available(target):
+            if not target_available(target, fresh=True):
                 log(f"Ziel „{target.name}“ nicht verfügbar ({target.location}) — übersprungen")
                 continue
             done[str(target_repo(target))] = snapshot(target_repo(target), stage, tags)
@@ -369,7 +388,7 @@ def backup_all(log, reason: str = "scheduled") -> None:
 
 
 def _backup_all(log, reason: str) -> None:
-    targets = [t for t in list_targets() if target_available(t)]
+    targets = [t for t in list_targets() if target_available(t, fresh=True)]
     if not targets:
         raise BackupError("Kein Backup-Ziel verfügbar (z.B. USB-Disk nicht eingesteckt)")
     db = SessionLocal()

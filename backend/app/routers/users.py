@@ -144,7 +144,11 @@ def icon(app_id: str):
     return FileResponse(manifest.dir / manifest.icon)
 
 
-@router.get("/sso/whoami")
+# Separate router: also served on the docker bridge for the app containers (app/sso_server.py).
+sso_router = APIRouter(prefix="/api", tags=["sso"])
+
+
+@sso_router.get("/sso/whoami")
 def whoami(
     app: str = Query(...),
     db: DbSession = Depends(get_db),

@@ -9,7 +9,7 @@
 # die Version dieses Installers gebracht.
 set -euo pipefail
 
-OVERHUB_VERSION="${OVERHUB_VERSION:-0.4.0}"
+OVERHUB_VERSION="${OVERHUB_VERSION:-0.4.1}"
 OVERHUB_IMAGE="ghcr.io/drstrangelove52/overhub"
 DATA=/opt/overhub
 PORT_INTERNAL=10443
@@ -122,15 +122,17 @@ fi
 # unter /mnt/overhub/backup eingehängt (nofail: ohne Disk startet das Gerät
 # normal). OVERHUB statt längerem Namen: FAT32 erlaubt nur 11 Zeichen.
 mkdir -p "$USB_MOUNT"
-if ! grep -q "^LABEL=${USB_LABEL} ${USB_MOUNT} " /etc/fstab; then
-  # older OverHub 0.2.0 used /mnt/overhub-backup
+# device-timeout=1s: without a disk every look at the mount point waits that
+# long for the device (5 s made OverHub's backup page slow).
+USB_FSTAB="LABEL=${USB_LABEL} ${USB_MOUNT} auto nofail,x-systemd.automount,x-systemd.idle-timeout=600,x-systemd.device-timeout=1s 0 0"
+if ! grep -qxF "$USB_FSTAB" /etc/fstab; then
+  # older entries: other path (OverHub 0.2.0) or other options
   if grep -q "^LABEL=${USB_LABEL} " /etc/fstab; then
     old="$(awk -v l="LABEL=${USB_LABEL}" '$1 == l { print $2; exit }' /etc/fstab)"
     sed -i "/^LABEL=${USB_LABEL} /d" /etc/fstab
     umount "$old" 2>/dev/null || true
   fi
-  printf 'LABEL=%s %s auto nofail,x-systemd.automount,x-systemd.idle-timeout=600,x-systemd.device-timeout=5s 0 0\n' \
-    "$USB_LABEL" "$USB_MOUNT" >>/etc/fstab
+  printf '%s\n' "$USB_FSTAB" >>/etc/fstab
   systemctl daemon-reload
   systemctl restart local-fs.target 2>/dev/null || true
   info "Backup-Disk: USB-Disk mit dem Namen ${USB_LABEL} wird unter ${USB_MOUNT} verwendet"

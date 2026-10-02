@@ -106,6 +106,8 @@ function when(iso) {
 
 <template>
   <ModalShell title="Backup" wide @close="emit('close')">
+    <p v-if="!data && !error" class="text-sm text-gray-400">Lade …</p>
+    <p v-if="!data && error" class="text-sm text-red-400">{{ error }}</p>
     <div v-if="data" class="space-y-6 text-sm">
       <!-- 1. Status -->
       <section class="rounded-lg bg-gray-950 p-4">

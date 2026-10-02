@@ -36,7 +36,7 @@ def scan(location: str, key: str) -> list[dict]:
         location = backup.check_location(location)
     except ValueError as exc:
         raise ReplaceError(str(exc))
-    if not backup.target_available(BackupTarget(name="scan", location=location), writable=False):
+    if not backup.target_available(BackupTarget(name="scan", location=location), writable=False, fresh=True):
         raise ReplaceError("Ordner nicht erreichbar. Ist die Backup-Disk eingesteckt?")
     repo = repo_for(location)
     if not (repo / "config").exists():

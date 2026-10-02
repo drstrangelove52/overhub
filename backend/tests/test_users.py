@@ -22,7 +22,7 @@ def test_admin_gets_admin_role_on_installed_apps(admin, host):
 def test_app_env_knows_overhub(admin, host):
     _install(admin)
     env = read_env(settings.apps_dir / "overcook" / ".env")
-    assert env["OVERHUB_URL"] == "http://127.0.0.1:10443"
+    assert env["OVERHUB_URL"] == "http://172.17.0.1:10444"  # reachable from the app's container
     assert env["OVERHUB_PUBLIC_URL"] == "https://pi.tail1234.ts.net"
 
 
@@ -103,3 +103,29 @@ def test_session_is_extended_when_used(admin, host):
         assert expires > datetime.now(timezone.utc) + timedelta(days=89)
     finally:
         db.close()
+
+
+def test_existing_apps_get_the_bridge_url(admin, host):
+    from app import sso_server
+    from app.envfile import write_env
+
+    _install(admin)
+    path = settings.apps_dir / "overcook" / ".env"
+    env = read_env(path)
+    env["OVERHUB_URL"] = "http://127.0.0.1:10443"  # as written by OverHub 0.4.0
+    write_env(path, env)
+    assert sso_server.sync_app_env(lambda m: None) == ["overcook"]
+    assert read_env(path)["OVERHUB_URL"] == "http://172.17.0.1:10444"
+    assert any(c[6:8] == ["up", "-d"] for c in host.calls[-3:])
+    assert sso_server.sync_app_env(lambda m: None) == []  # nothing to do the second time
+
+
+def test_sso_listener_serves_only_whoami():
+    from fastapi.testclient import TestClient
+
+    from app.sso_server import sso_app
+
+    c = TestClient(sso_app)
+    assert c.get("/api/sso/whoami?app=overcook").status_code == 401
+    assert c.get("/api/apps").status_code == 404
+    assert c.get("/api/users").status_code == 404

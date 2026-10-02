@@ -13,7 +13,7 @@ from pathlib import Path
 
 import httpx
 
-from app import backup, docker_ops, tailscale_ops
+from app import backup, docker_ops, sso_server, tailscale_ops
 from app.catalog import Manifest, get_manifest, version_tuple
 from app.config import settings
 from app.database import SessionLocal
@@ -188,7 +188,8 @@ def build_env(manifest: Manifest, user_settings: dict[str, str], components: lis
     if url:
         env["APP_PUBLIC_URL"] = url
     # Single sign-on (contract rule 8): the app asks OverHub who is logged in.
-    env["OVERHUB_URL"] = "http://127.0.0.1:10443"
+    # From inside the app's container OverHub is reachable on the docker bridge (app/sso_server.py).
+    env["OVERHUB_URL"] = sso_server.app_url()
     overhub_url = tailscale_ops.app_url(443)
     if overhub_url:
         env["OVERHUB_PUBLIC_URL"] = overhub_url

@@ -67,7 +67,7 @@ def add_target(body: TargetIn, db: DbSession = Depends(get_db)):
     db.add(target)
     db.commit()
     backup.recovery_key()  # created now, so the UI can show it right away
-    return {"id": target.id, "available": backup.target_available(target)}
+    return {"id": target.id, "available": backup.target_available(target, fresh=True)}
 
 
 @router.delete("/targets/{target_id}")
@@ -102,7 +102,7 @@ def acknowledge_key(body: KeyAckIn):
 
 @router.post("/run")
 def run_now():
-    if not [t for t in backup.list_targets() if backup.target_available(t)]:
+    if not [t for t in backup.list_targets() if backup.target_available(t, fresh=True)]:
         raise HTTPException(409, "Kein Backup-Ziel verfügbar")
     try:
         return {"job_id": operations.start_job("_backup", "backup", lambda log: backup.backup_all(log, "manual"))}

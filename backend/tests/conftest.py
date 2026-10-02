@@ -121,6 +121,8 @@ class FakeHost:
                 sid, path = args[1], Path(args[2])
                 return runner.Result(0, self.snapshot_files.get(sid, {}).get(path.name, b"").decode())
             return runner.Result(0, "[]")  # forget
+        if cmd[:3] == ["docker", "network", "inspect"]:
+            return runner.Result(0, "172.17.0.1")
         if cmd[:2] == ["docker", "run"]:
             return runner.Result(0, "")  # volume tar in/out
         if stdout_path is not None:
@@ -181,6 +183,8 @@ def host(monkeypatch):
 @pytest.fixture()
 def client():
     Base.metadata.drop_all(engine)
+    from app import backup
+    backup._available_cache.clear()
     for sub in ("apps", "safety", "staging", "exports", "imports", "restore", "cache"):
         shutil.rmtree(_DATA / sub, ignore_errors=True)
     limiter.reset()

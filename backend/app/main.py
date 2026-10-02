@@ -1,3 +1,4 @@
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -10,14 +11,14 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app import operations, scheduler, tailscale_ops
+from app import operations, scheduler, sso_server, tailscale_ops
 from app.bootstrap import init_db
 from app.config import settings
 from app.database import get_db
 from app.routers.apps import router as apps_router
 from app.routers.auth import limiter, require_admin, router as auth_router
 from app.routers.backup import router as backup_router
-from app.routers.users import router as users_router
+from app.routers.users import router as users_router, sso_router
 
 
 @asynccontextmanager
@@ -25,6 +26,8 @@ async def lifespan(_app: FastAPI):
     init_db()
     if settings.scheduler_enabled:
         scheduler.start()
+        sso_server.start()
+        threading.Thread(target=sso_server.sync_app_env, name="sso-env", daemon=True).start()
     yield
 
 
@@ -37,6 +40,7 @@ app.include_router(auth_router)
 app.include_router(apps_router)
 app.include_router(backup_router)
 app.include_router(users_router)
+app.include_router(sso_router)
 
 
 @app.get("/api/health")
