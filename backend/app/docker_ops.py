@@ -13,21 +13,22 @@ class ServiceState:
     health: str  # healthy, unhealthy, starting, or "" without a healthcheck
 
 
-def compose(app_dir: Path, *args: str, timeout: int = 900) -> runner.Result:
+def compose(app_dir: Path, *args: str, timeout: int = 900, merge_stderr: bool = True) -> runner.Result:
     return runner.run(
         ["docker", "compose", "--project-directory", str(app_dir), "-f", str(app_dir / "compose.yml"), *args],
         timeout=timeout,
+        merge_stderr=merge_stderr,
     )
 
 
 def images(app_dir: Path) -> list[str]:
     """Images the app actually uses with its current .env (version, profiles)."""
-    result = compose(app_dir, "config", "--images")
+    result = compose(app_dir, "config", "--images", merge_stderr=False)
     return [line.strip() for line in result.output.splitlines() if line.strip()] if result.ok else []
 
 
 def repo_digests(image: str) -> list[str]:
-    result = runner.run(["docker", "image", "inspect", image, "--format", "{{json .RepoDigests}}"])
+    result = runner.run(["docker", "image", "inspect", image, "--format", "{{json .RepoDigests}}"], merge_stderr=False)
     if not result.ok:
         return []
     try:
@@ -50,7 +51,7 @@ def verify_digests(app_dir: Path, expected: dict[str, str]) -> list[str]:
 
 
 def ps(app_dir: Path) -> list[ServiceState]:
-    result = compose(app_dir, "ps", "--all", "--format", "json")
+    result = compose(app_dir, "ps", "--all", "--format", "json", merge_stderr=False)
     if not result.ok:
         return []
     text = result.output.strip()

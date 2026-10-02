@@ -33,7 +33,7 @@ class FakeHost:
         self.healthy = True
         self.pulled_version = None
 
-    def run(self, cmd, cwd=None, timeout=900):
+    def run(self, cmd, cwd=None, timeout=900, merge_stderr=True):
         self.calls.append(cmd)
         if cmd[:2] == ["tailscale", "status"]:
             return runner.Result(0, json.dumps({

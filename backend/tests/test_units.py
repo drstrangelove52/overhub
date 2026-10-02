@@ -98,3 +98,16 @@ def test_ps_parses_ndjson_and_array(monkeypatch, tmp_path):
 def test_all_healthy_false_while_starting():
     assert not docker_ops.all_healthy([docker_ops.ServiceState("db", "running", "starting")])
     assert not docker_ops.all_healthy([])
+
+
+def test_runner_keeps_stderr_warnings_out_of_parsed_output():
+    # tailscale prints "client version != tailscaled server version" to stderr
+    # when the CLI in the image is newer than the host's daemon (seen on a Pi).
+    import sys
+
+    code = "import sys; print('Warning: version mismatch', file=sys.stderr); print('{\"ok\": true}')"
+    separate = runner.run([sys.executable, "-c", code], merge_stderr=False)
+    assert json.loads(separate.output) == {"ok": True}
+    assert "Warning" in separate.stderr
+    merged = runner.run([sys.executable, "-c", code])
+    assert "Warning" in merged.output

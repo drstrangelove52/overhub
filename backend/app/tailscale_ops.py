@@ -5,7 +5,7 @@ from app import runner
 
 
 def status() -> dict:
-    result = runner.run(["tailscale", "status", "--json"], timeout=30)
+    result = runner.run(["tailscale", "status", "--json"], timeout=30, merge_stderr=False)
     if not result.ok:
         return {}
     try:
