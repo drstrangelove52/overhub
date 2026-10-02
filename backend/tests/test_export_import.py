@@ -116,3 +116,21 @@ def test_old_database_gets_new_columns(tmp_path, monkeypatch):
     bootstrap._add_missing_columns()
     assert "result" in {c["name"] for c in inspect(engine).get_columns("job")}
     bootstrap._add_missing_columns()  # idempotent
+
+
+def test_old_exports_are_cleaned_up_by_the_scheduler(admin, host):
+    import os
+    import time
+    from datetime import datetime
+
+    from app import scheduler
+
+    _install(admin)
+    name = _export(admin)
+    path = backup.exports_dir() / name
+    scheduler.tick(datetime(2026, 10, 3, 1, 0))  # before 03:00: no backup, but cleanup runs
+    assert path.exists()
+    old = time.time() - 25 * 3600
+    os.utime(path, (old, old))
+    scheduler.tick(datetime(2026, 10, 3, 1, 5))
+    assert not path.exists()

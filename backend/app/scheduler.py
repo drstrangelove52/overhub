@@ -14,6 +14,7 @@ JOB_ID = "_backup"
 def tick(now: datetime | None = None) -> int | None:
     """Start the nightly backup job if it is due. Returns the job id if started."""
     now = now or datetime.now(ZoneInfo(settings.tz))
+    backup.cleanup_exports()  # exports hold app data: gone after 24 h even without a new export
     today = now.date().isoformat()
     if now.hour < BACKUP_HOUR or backup.get_setting("last_scheduled_backup") == today:
         return None
