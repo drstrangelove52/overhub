@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -62,6 +63,9 @@ def add_target(body: TargetIn, db: DbSession = Depends(get_db)):
     data_dir = settings.data_dir.resolve()
     if path.resolve() == data_dir or data_dir in path.resolve().parents:
         raise HTTPException(400, "Das Ziel darf nicht im OverHub-Datenordner liegen (dieselbe Disk schützt nicht)")
+    for existing in db.query(BackupTarget):
+        if os.path.normpath(existing.location) == os.path.normpath(location):
+            raise HTTPException(409, f"Dieser Ordner ist schon als Ziel „{existing.name}“ eingerichtet")
     target = BackupTarget(name=body.name.strip() or location, location=location)
     db.add(target)
     db.commit()

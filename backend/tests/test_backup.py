@@ -125,3 +125,10 @@ def test_scheduler_runs_once_per_night(admin, host, tmp_path):
     assert wait_job(admin, job_id)["status"] == "success"
     assert scheduler.tick(datetime(2026, 10, 3, 9, 0, tzinfo=tz)) is None  # once per day
     assert scheduler.tick(datetime(2026, 10, 4, 3, 1, tzinfo=tz)) is not None
+
+
+def test_same_target_cannot_be_added_twice(admin, host, tmp_path):
+    _add_target(admin, tmp_path)
+    r = admin.post("/api/backup/targets", json={"name": "Nochmal", "location": str(tmp_path) + "/"})
+    assert r.status_code == 409 and "schon als Ziel" in r.json()["detail"]
+    assert len(admin.get("/api/backup").json()["targets"]) == 1
