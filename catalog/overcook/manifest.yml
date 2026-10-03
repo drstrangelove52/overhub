@@ -5,7 +5,7 @@ schema: 1
 id: overcook
 name: OverCook
 description: Rezepte sammeln und skalieren, Einkaufsliste offline auf dem Handy
-version: 0.2.0
+version: 0.2.1
 min_overhub: 0.1.0
 port: 8443
 arch: [amd64, arm64]
@@ -14,9 +14,9 @@ pwa: true
 icon: icon.png
 
 images:
-  ghcr.io/drstrangelove52/overcook-backend: sha256:99cae9d70c483d35692c52e9812f6732b8de656d6d4b29ed795219c6bf1e0545
-  ghcr.io/drstrangelove52/overcook-frontend: sha256:8701d01ada1d10e247a9be1897c8c6e8b7725c359b263d20501c7087b95e6d9f
-  ghcr.io/drstrangelove52/overcook-mcp: sha256:f459e194b7ffe0c7a5b7042d9a3f7f25a52a4c96478b2edadfa8fb6d09655000
+  ghcr.io/drstrangelove52/overcook-backend: sha256:5a6e8ca5ccdb2a5ae1436ae19657c8902d702f4fa0d4b883ed44332d93ed3da2
+  ghcr.io/drstrangelove52/overcook-frontend: sha256:85332060ff6cdaec2223135d99d1a80365ca135b14eade798062fc05b6e60262
+  ghcr.io/drstrangelove52/overcook-mcp: sha256:b1cd664a083a2e30b317ec208277170aa28b035f50bbe96d7b82d1a15b7460de
 
 env:
   generated:
