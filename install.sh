@@ -29,6 +29,22 @@ ts_json() { tailscale status --self --peers=false --json 2>/dev/null || true; }
 # pipe like `| head`, which would SIGPIPE the writer and trip pipefail).
 json_str() { sed -n "/\"$1\": *\"/{s/.*\"$1\": *\"\([^\"]*\)\".*/\1/p;q}"; }
 ts_has() { local st; st="$(ts_json)"; grep -q -- "$1" <<<"$st"; }
+# A freshly booted Debian/Ubuntu runs its automatic updates and holds the apt
+# lock; installing packages then fails at once. Wait for them (max. 15 min).
+# Not counted: unattended-upgrade-shutdown, which idles in the background.
+apt_busy() {
+  pgrep -x 'apt|apt-get|dpkg|aptitude' >/dev/null \
+    || pgrep -f 'apt\.systemd\.daily|/usr/bin/unattended-upgrade( |$)' >/dev/null
+}
+wait_for_apt() {
+  local waited=0
+  while apt_busy; do
+    [ "$waited" -eq 0 ] && info "warte, bis die automatischen System-Updates fertig sind …"
+    [ "$waited" -ge 900 ] && die "Die System-Updates laufen seit 15 Minuten. Später erneut versuchen."
+    sleep 5
+    waited=$((waited + 5))
+  done
+}
 
 # ---------------------------------------------------------------- Prüfungen
 [ "$(id -u)" -eq 0 ] || die "Bitte mit sudo ausführen: curl -fsSL … | sudo bash"
@@ -43,13 +59,14 @@ case "${ID:-}${ID_LIKE:-}" in
   *) die "Nur Debian, Ubuntu und Raspberry Pi OS werden unterstützt (gefunden: ${PRETTY_NAME:-unbekannt})." ;;
 esac
 bold "OverHub ${OVERHUB_VERSION} auf ${PRETTY_NAME} (${ARCH})"
-command -v curl >/dev/null || { apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null; }
+command -v curl >/dev/null || { wait_for_apt; apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null; }
 
 # ---------------------------------------------------------------- Docker
 bold "1/5 Docker"
 if command -v docker >/dev/null && docker compose version >/dev/null 2>&1; then
   info "vorhanden: $(docker --version)"
 else
+  wait_for_apt
   info "wird installiert (get.docker.com) …"
   curl -fsSL https://get.docker.com | sh >/tmp/overhub-docker-install.log 2>&1 \
     || die "Docker-Installation fehlgeschlagen, siehe /tmp/overhub-docker-install.log"
@@ -76,6 +93,7 @@ bold "2/5 Tailscale"
 if command -v tailscale >/dev/null; then
   info "vorhanden: $(tailscale version | head -n1)"
 else
+  wait_for_apt
   info "wird installiert (tailscale.com/install.sh) …"
   curl -fsSL https://tailscale.com/install.sh | sh >/tmp/overhub-tailscale-install.log 2>&1 \
     || die "Tailscale-Installation fehlgeschlagen, siehe /tmp/overhub-tailscale-install.log"
