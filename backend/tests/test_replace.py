@@ -88,6 +88,8 @@ def test_replace_device_from_nas(admin, host, tmp_path):
     assert job["status"] == "success", job["log"]
     r = admin.post("/api/backup/targets", json={**NAS, "name": "Synology", "password": "nas-pass-123"})
     assert r.status_code == 200
+    admin.post("/api/apps/overcook/emergency-login")
+    admin.post("/api/apps/overcook/emergency-login/ack")
     job = wait_job(admin, admin.post("/api/backup/run").json()["job_id"])
     assert job["status"] == "success", job["log"]
     old_key = backup.recovery_key()
@@ -116,6 +118,9 @@ def test_replace_device_from_nas(admin, host, tmp_path):
     job = wait_job(admin, job_id)
     assert job["status"] == "success", job["log"]
     assert "Spiele die neuesten Daten ein" in job["log"]
+    # the emergency account came back with OverCook's data: no new password needed
+    overcook = next(a for a in admin.get("/api/apps").json() if a["id"] == "overcook")
+    assert overcook["emergency_login"]["confirmed_at"] and "Notfall-Konto übernommen" in job["log"]
 
     # the NAS is a target again, with its password: the next backup works without typing it again
     targets = admin.get("/api/backup").json()["targets"]

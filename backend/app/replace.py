@@ -121,6 +121,10 @@ def _run(log, location: str, key: str, snapshot_id: str, password: str | None) -
                 else "select name, location, null from backup_target"
             ).fetchall()
             apps = con.execute("select id, components from installed_app order by id").fetchall()
+            # "Notfall-Konto bestätigt": the account itself lives in the app's data and comes back with it
+            emergency = dict(con.execute(
+                "select key, value from setting where key like 'emergency_login:%'"
+            ).fetchall()) if "setting" in tables else {}
         finally:
             con.close()
 
@@ -172,6 +176,10 @@ def _run(log, location: str, key: str, snapshot_id: str, password: str | None) -
                         log(f"Spiele die neuesten Daten ein (Snapshot {sid}) …")
                         backup.restore_app(app_id, repo, sid, log, check=True)
                         operations.start(log, app_id)
+                        confirmed = emergency.get(operations.emergency_key(app_id))
+                        if confirmed:  # same data, so the same emergency password
+                            backup.set_setting(operations.emergency_key(app_id), confirmed)
+                            log("Notfall-Konto übernommen (bisheriges Passwort gilt weiter)")
                     else:
                         log(f"Keine Datensicherung von {manifest.name} gefunden — App startet leer")
                 restored.append(manifest.name)
