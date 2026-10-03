@@ -13,14 +13,15 @@ Repositories:
 - the **safety repo** /opt/overhub/safety on the device itself: always there,
   holds the last states before updates so a failed update can roll back
   (does not protect against a disk failure);
-- every configured **target** (USB disk, any directory) at <location>/overhub:
-  nightly backups, retention 7 daily / 4 weekly / 6 monthly.
+- every configured **target** (USB disk, any directory, NAS per SFTP) at
+  <location>/overhub: nightly backups, retention 7 daily / 4 weekly / 6 monthly.
 
 All repositories share one password, the instance recovery key in
 /opt/overhub/backup.key (shown to the admin once, to keep in a password manager).
 """
 import json
 import os
+import re
 import secrets
 import shlex
 import shutil
@@ -99,8 +100,82 @@ def set_setting(key: str, value: str) -> None:
 
 # ---------- targets ----------
 
-def target_repo(target: BackupTarget) -> Path:
+def is_sftp(location) -> bool:
+    return str(location).startswith("sftp:")
+
+
+def target_repo(target: BackupTarget) -> Path | str:
+    if is_sftp(target.location):
+        return target.location.rstrip("/") + "/overhub"
     return Path(target.location) / "overhub"
+
+
+# ---------- SFTP (NAS) ----------
+# restic talks SFTP through an ssh process. Logging in with a password needs
+# sshpass (-e: password from $SSHPASS, never on a command line). The NAS's host
+# key is remembered on first contact (accept-new) and checked from then on.
+
+SFTP_LOCATION = re.compile(r"sftp:([A-Za-z0-9._-]+)@([A-Za-z0-9.-]+):(/[A-Za-z0-9._/ -]*)")
+
+
+def sftp_location(user: str, host: str, path: str) -> str:
+    """Normalised location, or ValueError with a message for the user."""
+    path = "/" + path.strip().strip("/")
+    location = f"sftp:{user.strip()}@{host.strip()}:{path}"
+    if not SFTP_LOCATION.fullmatch(location) or ".." in path.split("/"):
+        raise ValueError("Ungültige Angaben: Server z.B. nas.local, Benutzer ohne Leerzeichen, Ordner z.B. backup")
+    return location
+
+
+def _sftp_parts(location: str) -> tuple[str, str, str]:
+    user, host, path = SFTP_LOCATION.fullmatch(location).groups()
+    return user, host, path
+
+
+def _ssh_options() -> list[str]:
+    ssh_dir = settings.data_dir / "ssh"
+    ssh_dir.mkdir(mode=0o700, exist_ok=True)
+    return [
+        "-o", f"UserKnownHostsFile={ssh_dir / 'known_hosts'}",
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "PubkeyAuthentication=no",
+        "-o", "PreferredAuthentications=password,keyboard-interactive",
+        "-o", "NumberOfPasswordPrompts=1",
+        "-o", "ConnectTimeout=15",
+        "-o", "ServerAliveInterval=30",
+    ]
+
+
+def _sftp_target(repo) -> BackupTarget | None:
+    for target in list_targets():
+        if is_sftp(target.location) and str(repo).startswith(target.location.rstrip("/") + "/"):
+            return target
+    return None
+
+
+# sshpass exit codes worth explaining
+_SSHPASS_ERRORS = {
+    5: "Anmeldung abgelehnt (Benutzer oder Passwort falsch)",
+    6: "Der Server meldet einen anderen Schlüssel als beim ersten Kontakt — Ziel entfernen und neu einrichten",
+}
+
+
+def sftp_check(location: str, password: str) -> str | None:
+    """None if the folder can be listed with these credentials, else a message."""
+    user, host, path = _sftp_parts(location)
+    batch = settings.data_dir / "cache" / "sftp-check"
+    batch.parent.mkdir(parents=True, exist_ok=True)
+    batch.write_text(f'ls "{path}"\n')
+    result = runner.run(
+        ["sshpass", "-e", "sftp", "-b", str(batch), *_ssh_options(), f"{user}@{host}"],
+        env={"SSHPASS": password}, merge_stderr=True, timeout=60,
+    )
+    if result.ok:
+        return None
+    if result.returncode in _SSHPASS_ERRORS:
+        return _SSHPASS_ERRORS[result.returncode]
+    last = (result.output.strip().splitlines() or [""])[-1][:200]
+    return f"Keine Verbindung zu {host} oder Ordner {path} fehlt ({last})"
 
 
 def _real_mount(path: str) -> bool:
@@ -142,6 +217,8 @@ def target_available(target: BackupTarget, writable: bool = True, fresh: bool = 
     so the answer is kept for 30 s (the UI asks every few seconds). Actions
     that write (backup, adding a target) pass fresh=True.
     """
+    if is_sftp(target.location):
+        writable = True  # one probe answers both
     key = (target.location, writable)
     hit = _available_cache.get(key)
     if not fresh and hit and hit[0] > time.monotonic():
@@ -152,6 +229,8 @@ def target_available(target: BackupTarget, writable: bool = True, fresh: bool = 
 
 
 def _probe(target: BackupTarget, writable: bool) -> bool:
+    if is_sftp(target.location):
+        return sftp_check(target.location, target.password or "") is None
     location = Path(target.location)
     try:
         os.listdir(location)  # triggers the automount of a plugged-in USB disk
@@ -178,20 +257,31 @@ def list_targets() -> list[BackupTarget]:
 
 # ---------- restic ----------
 
-def restic(repo: Path, *args: str, timeout: int = 3600, password: str | None = None) -> runner.Result:
+def restic(repo: Path | str, *args: str, timeout: int = 3600, password: str | None = None) -> runner.Result:
     """password: defaults to the instance recovery key; exports use their own passphrase."""
+    env = {"RESTIC_PASSWORD": password or recovery_key(), "RESTIC_CACHE_DIR": str(settings.data_dir / "cache")}
+    extra: list[str] = []
+    if is_sftp(repo):
+        target = _sftp_target(repo)
+        if target is None:
+            return runner.Result(1, "", f"Kein Backup-Ziel für {repo}")
+        user, host, _ = _sftp_parts(target.location)
+        ssh = ["sshpass", "-e", "ssh", *_ssh_options(), f"{user}@{host}", "-s", "sftp"]
+        extra = ["-o", "sftp.command=" + shlex.join(ssh)]
+        env["SSHPASS"] = target.password or ""
     return runner.run(
-        ["restic", "-r", str(repo), *args],
-        env={"RESTIC_PASSWORD": password or recovery_key(), "RESTIC_CACHE_DIR": str(settings.data_dir / "cache")},
+        ["restic", "-r", str(repo), *args, *extra],
+        env=env,
         merge_stderr=False,
         timeout=timeout,
     )
 
 
-def ensure_repo(repo: Path) -> None:
+def ensure_repo(repo: Path | str) -> None:
     if restic(repo, "cat", "config", timeout=120).ok:
         return
-    repo.mkdir(parents=True, exist_ok=True)
+    if not is_sftp(repo):  # over SFTP restic creates the folders itself
+        repo.mkdir(parents=True, exist_ok=True)
     result = restic(repo, "init", timeout=120)
     if not result.ok:
         raise BackupError(f"Backup-Repository {repo} konnte nicht angelegt werden: {result.stderr or result.output}")

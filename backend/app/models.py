@@ -51,14 +51,18 @@ class InstalledApp(Base):
 
 
 class BackupTarget(Base):
-    """A restic repository location. 3a: a host directory (USB disk mount point
-    or any path); SFTP and S3 follow later."""
+    """A restic repository location: a host directory (USB disk mount point
+    below /mnt/overhub) or an SFTP server (NAS, location "sftp:user@host:/path",
+    login with password). S3 follows later."""
 
     __tablename__ = "backup_target"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(64))
-    location: Mapped[str] = mapped_column(String(255))  # directory; the repo lives in <location>/overhub
+    location: Mapped[str] = mapped_column(String(255))  # the repo lives in <location>/overhub
+    # SFTP login password. Kept in overhub.db (0700 dir) and so in OverHub's own
+    # (encrypted) backup: replacing a device must find the NAS again.
+    password: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

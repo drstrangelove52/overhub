@@ -50,6 +50,8 @@ class FakeHost:
         self.snapshot_files: dict[str, dict[str, bytes]] = {}  # snapshot id -> staged files
         self.packed: dict[str, str] = {}  # export file -> password of the packed repo
         self.restic_env: list[dict] = []
+        self.sftp_password = "nas-pass-123"  # what the fake NAS accepts
+        self.sftp_up = True
 
     def run(self, cmd, cwd=None, timeout=900, merge_stderr=True, env=None, stdin_path=None, stdout_path=None):
         self.calls.append(cmd)
@@ -69,16 +71,25 @@ class FakeHost:
                         self.snapshot_meta[sid + "x"] = self.snapshot_meta[sid]
                         self.snapshot_files[sid + "x"] = self.snapshot_files[sid]
             return runner.Result(0, "")
+        if cmd[0] == "sshpass":  # sftp login check against the fake NAS
+            if not self.sftp_up:
+                return runner.Result(255, "ssh: connect to host nas.local port 22: Connection refused")
+            return runner.Result(0 if (env or {}).get("SSHPASS") == self.sftp_password else 5, "")
         if cmd[0] == "restic":
             self.restic_env.append(env or {})
             repo, args = cmd[2], cmd[3:]
+            if "-o" in args:  # sftp.command for NAS targets
+                args = args[:args.index("-o")]
+                if (env or {}).get("SSHPASS") != self.sftp_password:
+                    return runner.Result(1, "", "Fatal: unable to open repository: ssh exited")
             password = (env or {}).get("RESTIC_PASSWORD")
             if self.restic_fail:
                 return runner.Result(1, "", "Fatal: unable to open repository")
             if args[:1] == ["init"]:
                 self.repos[repo] = password
-                Path(repo).mkdir(parents=True, exist_ok=True)
-                (Path(repo) / "config").write_text("fake")
+                if not repo.startswith("sftp:"):
+                    Path(repo).mkdir(parents=True, exist_ok=True)
+                    (Path(repo) / "config").write_text("fake")
                 return runner.Result(0, "created restic repository")
             if repo not in self.repos:
                 return runner.Result(1, "", "Fatal: repository does not exist")

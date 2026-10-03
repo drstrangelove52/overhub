@@ -10,7 +10,7 @@ from app.security import hash_password
 
 # Columns added after a table first shipped. create_all() only creates missing
 # tables, so existing installs get them here. (table, column, SQL type)
-_ADDED_COLUMNS = [("job", "result", "TEXT")]
+_ADDED_COLUMNS = [("job", "result", "TEXT"), ("backup_target", "password", "TEXT")]
 
 
 def _add_missing_columns() -> None:

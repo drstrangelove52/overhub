@@ -16,6 +16,10 @@ const keyStep = ref("hidden"); // hidden | show | confirm
 const confirmChars = ref("");
 const keyError = ref("");
 const showDetails = ref(false);
+const showNasForm = ref(false);
+const nas = ref({ name: "NAS", host: "", user: "", password: "", path: "" });
+const showNasPassword = ref(false);
+const nasBusy = ref(false);
 
 async function load() {
   try {
@@ -52,6 +56,19 @@ async function addTarget(body) {
     if (!data.value.key_acknowledged) await showKey();
   } catch (e) {
     error.value = e.message;
+  }
+}
+
+async function addNas() {
+  nasBusy.value = true; // the server logs in once before saving (a few seconds)
+  try {
+    await addTarget({ kind: "sftp", ...nas.value });
+    if (!error.value) {
+      showNasForm.value = false;
+      nas.value = { name: "NAS", host: "", user: "", password: "", path: "" };
+    }
+  } finally {
+    nasBusy.value = false;
   }
 }
 
@@ -144,7 +161,7 @@ function when(iso) {
           </div>
           <div class="flex shrink-0 items-center gap-2">
             <span class="rounded-full px-2 py-0.5 text-xs" :class="t.available ? 'bg-green-500/20 text-green-300' : 'bg-yellow-500/20 text-yellow-300'">
-              {{ t.available ? "bereit" : t.location === data.usb_path ? "nicht eingesteckt" : "nicht verfügbar" }}
+              {{ t.available ? "bereit" : t.location === data.usb_path ? "nicht eingesteckt" : t.location.startsWith("sftp:") ? "nicht erreichbar" : "nicht verfügbar" }}
             </span>
             <button class="text-gray-500 hover:text-red-300" title="Ziel entfernen" @click="removeTarget(t)">✕</button>
           </div>
@@ -175,7 +192,35 @@ function when(iso) {
             </form>
           </div>
         </div>
-        <p class="mt-2 text-xs text-gray-500">NAS und Cloud als Ziel folgen in einer späteren Version.</p>
+        <div class="mt-3 rounded-lg border border-gray-800 p-3">
+          <div class="mb-1 font-medium">NAS (SFTP)</div>
+          <p v-if="!showNasForm" class="mb-3 text-xs text-gray-400">
+            Ein NAS im Heimnetz, z.B. Synology (Systemsteuerung → Dateidienste → FTP → SFTP aktivieren). Am besten mit einem
+            eigenen Benutzer, der nur den Backup-Ordner beschreiben darf.
+          </p>
+          <button v-if="!showNasForm" class="btn-secondary" @click="showNasForm = true">NAS einrichten …</button>
+          <form v-else class="space-y-2" @submit.prevent="addNas">
+            <div class="grid gap-2 sm:grid-cols-2">
+              <input v-model="nas.name" class="input" placeholder="Name, z.B. NAS" required />
+              <input v-model="nas.host" class="input" placeholder="Server, z.B. nas.local" autocomplete="off" required />
+              <input v-model="nas.user" class="input" placeholder="Benutzer" autocomplete="off" required />
+              <div class="flex items-center gap-2">
+                <input v-model="nas.password" :type="showNasPassword ? 'text' : 'password'" class="input" placeholder="Passwort"
+                       autocomplete="new-password" required />
+                <button type="button" class="shrink-0 text-xs text-gray-400 hover:text-gray-200" @click="showNasPassword = !showNasPassword">
+                  {{ showNasPassword ? "Verbergen" : "Anzeigen" }}
+                </button>
+              </div>
+              <input v-model="nas.path" class="input sm:col-span-2" placeholder="Freigegebener Ordner, z.B. backup" autocomplete="off" required />
+            </div>
+            <p class="text-xs text-gray-500">OverHub meldet sich zur Probe an, bevor das Ziel gespeichert wird. Die Sicherungen landen im Unterordner „overhub“.</p>
+            <div class="flex justify-end gap-2">
+              <button type="button" class="btn-secondary" @click="showNasForm = false">Abbrechen</button>
+              <button class="btn-primary" :disabled="nasBusy">{{ nasBusy ? "Prüfe Anmeldung …" : "Hinzufügen" }}</button>
+            </div>
+          </form>
+        </div>
+        <p class="mt-2 text-xs text-gray-500">Cloud-Speicher als Ziel folgt in einer späteren Version.</p>
       </section>
 
       <!-- 3. Schlüssel -->

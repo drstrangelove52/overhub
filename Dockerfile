@@ -14,6 +14,9 @@ FROM tailscale/tailscale:stable AS tailscale
 FROM restic/restic:0.18.0 AS restic
 
 FROM python:3.12-slim
+# NAS backup targets: restic speaks SFTP through ssh, sshpass logs in with a password.
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-client sshpass \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=dockercli /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 COPY --from=tailscale /usr/local/bin/tailscale /usr/local/bin/tailscale

@@ -19,7 +19,12 @@ USB_PATH = "/mnt/overhub/backup"
 
 class TargetIn(BaseModel):
     name: str
-    location: str
+    location: str = ""  # folder targets
+    kind: str = "dir"  # dir | sftp
+    host: str = ""  # sftp only
+    user: str = ""
+    password: str = ""
+    path: str = ""
 
 
 def _iso(dt):
@@ -57,13 +62,24 @@ def overview(db: DbSession = Depends(get_db)):
 @router.post("/targets")
 def add_target(body: TargetIn, db: DbSession = Depends(get_db)):
     try:
-        location = backup.check_location(body.location)
+        if body.kind == "sftp":
+            location = backup.sftp_location(body.user, body.host, body.path)
+        else:
+            location = backup.check_location(body.location)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     for existing in db.query(BackupTarget):
         if os.path.normpath(existing.location) == os.path.normpath(location):
             raise HTTPException(409, f"Dieser Ordner ist schon als Ziel „{existing.name}“ eingerichtet")
-    target = BackupTarget(name=body.name.strip() or location, location=location)
+    password = None
+    if body.kind == "sftp":
+        if not body.password:
+            raise HTTPException(400, "Passwort fehlt")
+        problem = backup.sftp_check(location, body.password)
+        if problem:  # nothing stored: fix the input and try again
+            raise HTTPException(400, problem)
+        password = body.password
+    target = BackupTarget(name=body.name.strip() or location, location=location, password=password)
     db.add(target)
     db.commit()
     backup.recovery_key()  # created now, so the UI can show it right away

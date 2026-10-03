@@ -109,12 +109,14 @@ def test_old_database_gets_new_columns(tmp_path, monkeypatch):
     path = tmp_path / "old.db"
     con = sqlite3.connect(path)
     con.execute("CREATE TABLE job (id INTEGER PRIMARY KEY, app_id TEXT, action TEXT, status TEXT, log TEXT, credentials TEXT)")
+    con.execute("CREATE TABLE backup_target (id INTEGER PRIMARY KEY, name TEXT, location TEXT, created_at TEXT)")
     con.commit()
     con.close()
     engine = create_engine(f"sqlite:///{path}")
     monkeypatch.setattr(bootstrap, "engine", engine)
     bootstrap._add_missing_columns()
     assert "result" in {c["name"] for c in inspect(engine).get_columns("job")}
+    assert "password" in {c["name"] for c in inspect(engine).get_columns("backup_target")}
     bootstrap._add_missing_columns()  # idempotent
 
 

@@ -456,7 +456,7 @@ def restore(log, app_id: str, repo: str, snapshot_id: str) -> None:
         raise OperationError(f"Aktueller Stand konnte nicht gesichert werden, nichts verändert: {exc}")
     log(f"Stelle Stand {snapshot_id} wieder her …")
     try:
-        backup.restore_app(app_id, Path(repo), snapshot_id, log, check=True)
+        backup.restore_app(app_id, repo if backup.is_sftp(repo) else Path(repo), snapshot_id, log, check=True)
         result = docker_ops.compose(directory, "up", "-d")
         if not result.ok:
             raise OperationError(result.output[-2000:])
