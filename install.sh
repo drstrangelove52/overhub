@@ -9,7 +9,7 @@
 # die Version dieses Installers gebracht.
 set -euo pipefail
 
-OVERHUB_VERSION="${OVERHUB_VERSION:-0.7.1}"
+OVERHUB_VERSION="${OVERHUB_VERSION:-0.7.2}"
 OVERHUB_IMAGE="ghcr.io/drstrangelove52/overhub"
 DATA=/opt/overhub
 PORT_INTERNAL=10443
@@ -103,6 +103,10 @@ info "verbunden als ${DNS_NAME}"
 
 # ---------------------------------------------------------------- OverHub
 bold "3/5 OverHub einrichten (${DATA})"
+# The host's time zone. timedatectl first: on Ubuntu `timedatectl set-timezone`
+# leaves /etc/timezone at its old value.
+HOST_TZ="$(timedatectl show -p Timezone --value 2>/dev/null || true)"
+[ -n "$HOST_TZ" ] || HOST_TZ="$(cat /etc/timezone 2>/dev/null || true)"
 mkdir -p "$DATA/apps"
 chmod 700 "$DATA"
 NEW_ADMIN=""
@@ -112,13 +116,12 @@ if [ ! -f "$DATA/overhub.env" ]; then
   cat >"$DATA/overhub.env" <<EOF
 OVERHUB_ADMIN_USERNAME=admin
 OVERHUB_ADMIN_PASSWORD=${NEW_ADMIN}
-OVERHUB_TZ=$(cat /etc/timezone 2>/dev/null || echo Europe/Zurich)
+OVERHUB_TZ=${HOST_TZ:-Europe/Zurich}
 EOF
   info "Zugangsdaten erzeugt"
 else
   info "bestehende Einstellungen bleiben (overhub.env)"
   # The time zone follows the host (a VM may have been set up on UTC first).
-  HOST_TZ="$(cat /etc/timezone 2>/dev/null || true)"
   if [ -n "$HOST_TZ" ] && ! grep -qxF "OVERHUB_TZ=${HOST_TZ}" "$DATA/overhub.env"; then
     sed -i '/^OVERHUB_TZ=/d' "$DATA/overhub.env"
     printf 'OVERHUB_TZ=%s
