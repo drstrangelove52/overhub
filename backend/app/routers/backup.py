@@ -164,18 +164,33 @@ def run_now():
 # ---------- replace a device ----------
 
 class ReplaceScanIn(BaseModel):
-    location: str
     key: str
+    location: str = ""  # folder below /mnt/overhub
+    kind: str = "dir"  # dir | sftp
+    host: str = ""  # sftp only
+    user: str = ""
+    password: str = ""
+    path: str = ""
 
 
 class ReplaceIn(ReplaceScanIn):
     snapshot_id: str
 
 
+def _replace_source(body: ReplaceScanIn) -> tuple[str, str | None]:
+    if body.kind != "sftp":
+        return body.location, None
+    try:
+        return backup.sftp_location(body.user, body.host, body.path), body.password
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
 @router.post("/replace/scan")
 def replace_scan(body: ReplaceScanIn):
+    location, password = _replace_source(body)
     try:
-        return replace.scan(body.location, body.key.strip())
+        return replace.scan(location, body.key.strip(), password)
     except replace.ReplaceError as exc:
         raise HTTPException(400, str(exc))
 
@@ -184,12 +199,14 @@ def replace_scan(body: ReplaceScanIn):
 def replace_run(body: ReplaceIn, db: DbSession = Depends(get_db)):
     if db.query(InstalledApp).count():
         raise HTTPException(409, "Auf diesem Gerät sind schon Apps installiert")
+    location, password = _replace_source(body)
     try:
-        replace.scan(body.location, body.key.strip())  # same checks before starting the job
+        replace.scan(location, body.key.strip(), password)  # same checks before starting the job
     except replace.ReplaceError as exc:
         raise HTTPException(400, str(exc))
     try:
-        job_id = operations.start_job("_replace", "replace", replace.run, body.location, body.key.strip(), body.snapshot_id)
+        job_id = operations.start_job("_replace", "replace", replace.run, location, body.key.strip(), body.snapshot_id,
+                                      password)
     except operations.OperationError as exc:
         raise HTTPException(409, str(exc))
     return {"job_id": job_id}

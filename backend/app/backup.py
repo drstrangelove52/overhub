@@ -29,6 +29,7 @@ import shutil
 import sqlite3
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -154,10 +155,31 @@ def _ssh_options() -> list[str]:
     ]
 
 
-def _sftp_target(repo) -> BackupTarget | None:
-    for target in list_targets():
-        if is_sftp(target.location) and str(repo).startswith(target.location.rstrip("/") + "/"):
-            return target
+# SFTP logins for repositories that are not a target (yet): replacing a device
+# reads the old OverHub's backup from the NAS before any target exists.
+_extra_logins: dict[str, str] = {}  # location -> password
+
+
+@contextmanager
+def sftp_login(location: str, password: str | None):
+    """Let restic reach an SFTP location that is not a backup target."""
+    if not (is_sftp(location) and password):
+        yield
+        return
+    _extra_logins[location] = password
+    try:
+        yield
+    finally:
+        _extra_logins.pop(location, None)
+
+
+def _sftp_login_for(repo) -> tuple[str, str] | None:
+    """(location, password) for an SFTP repository: a target, else a temporary login."""
+    candidates = [(t.location, t.password or "") for t in list_targets() if is_sftp(t.location)]
+    candidates += list(_extra_logins.items())
+    for location, password in candidates:
+        if str(repo).startswith(location.rstrip("/") + "/"):
+            return location, password
     return None
 
 
@@ -302,13 +324,13 @@ def restic(repo: Path | str, *args: str, timeout: int = 3600, password: str | No
     env = {"RESTIC_PASSWORD": password or recovery_key(), "RESTIC_CACHE_DIR": str(settings.data_dir / "cache")}
     extra: list[str] = []
     if is_sftp(repo):
-        target = _sftp_target(repo)
-        if target is None:
+        login = _sftp_login_for(repo)
+        if login is None:
             return runner.Result(1, "", f"Kein Backup-Ziel für {repo}")
-        user, host, _ = _sftp_parts(target.location)
+        user, host, _ = _sftp_parts(login[0])
         ssh = ["sshpass", "-e", "ssh", *_ssh_options(), f"{user}@{host}", "-s", "sftp"]
         extra = ["-o", "sftp.command=" + shlex.join(ssh)]
-        env["SSHPASS"] = target.password or ""
+        env["SSHPASS"] = login[1]
     return runner.run(
         ["restic", "-r", str(repo), *args, *extra],
         env=env,

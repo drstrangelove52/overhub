@@ -78,3 +78,48 @@ def test_replace_refused_when_apps_are_installed(admin, host, tmp_path):
     old_key, _ = _old_device(admin, tmp_path)
     r = admin.post("/api/backup/replace", json={"location": str(tmp_path), "key": old_key, "snapshot_id": "00000001"})
     assert r.status_code == 409
+
+
+NAS = {"kind": "sftp", "host": "nas.local", "user": "overhub_backup", "path": "backup_primary/pi"}
+
+
+def test_replace_device_from_nas(admin, host, tmp_path):
+    job = wait_job(admin, admin.post("/api/apps/overcook/install", json={}).json()["job_id"])
+    assert job["status"] == "success", job["log"]
+    r = admin.post("/api/backup/targets", json={**NAS, "name": "Synology", "password": "nas-pass-123"})
+    assert r.status_code == 200
+    job = wait_job(admin, admin.post("/api/backup/run").json()["job_id"])
+    assert job["status"] == "success", job["log"]
+    old_key = backup.recovery_key()
+    _new_device(admin)
+    assert admin.get("/api/backup").json()["targets"] == []  # nothing knows the NAS yet
+
+    r = admin.post("/api/backup/replace/scan", json={**NAS, "key": old_key, "password": "falsch"})
+    assert r.status_code == 400 and "Passwort falsch" in r.json()["detail"]
+    r = admin.post("/api/backup/replace/scan", json={**NAS, "key": "falsch", "password": "nas-pass-123"})
+    assert r.status_code == 400 and "passt nicht" in r.json()["detail"]
+    r = admin.post("/api/backup/replace/scan", json={**NAS, "path": "backup_primary/leer", "key": old_key,
+                                                     "password": "nas-pass-123"})
+    assert r.status_code == 400 and "kein OverHub-Backup" in r.json()["detail"]
+
+    snaps = admin.post("/api/backup/replace/scan", json={**NAS, "key": old_key, "password": "nas-pass-123"}).json()
+    assert len(snaps) == 1 and snaps[0]["apps"][0]["id"] == "overcook"
+    r = admin.post("/api/backup/replace", json={**NAS, "key": old_key, "password": "nas-pass-123",
+                                                "snapshot_id": snaps[0]["id"]})
+    job_id = r.json()["job_id"]
+    import time
+    for _ in range(300):
+        if admin.get(f"/api/jobs/{job_id}").status_code == 401:
+            break
+        time.sleep(0.05)
+    assert admin.post("/api/auth/login", json={"username": "admin", "password": "admin-pass-123"}).status_code == 200
+    job = wait_job(admin, job_id)
+    assert job["status"] == "success", job["log"]
+    assert "Spiele die neuesten Daten ein" in job["log"]
+
+    # the NAS is a target again, with its password: the next backup works without typing it again
+    targets = admin.get("/api/backup").json()["targets"]
+    assert [(t["name"], t["path"], t["available"]) for t in targets] == [("Synology", "backup_primary/pi", True)]
+    assert backup._extra_logins == {}  # the temporary login is gone
+    job = wait_job(admin, admin.post("/api/backup/run").json()["job_id"])
+    assert job["status"] == "success", job["log"]

@@ -1,9 +1,13 @@
 """Replace a device: rebuild a fresh OverHub from the backup of an old one.
 
+The old backup is read from a folder below /mnt/overhub (USB disk) or from an
+NAS per SFTP (login typed in; no target exists yet on the fresh device).
+
 The old OverHub's own snapshot (app "_overhub") holds its database and every
 app's .env. From it the new device takes over
 - users and passwords (the old login applies again),
-- backup targets and the recovery key (the key the user typed in),
+- backup targets (an NAS with its password) and the recovery key (the key
+  the user typed in),
 - every installed app: installed in the current catalog version with its old
   secrets, then filled with the newest data snapshot from the same repository
   (data of an older app version may go into a newer one, contract rule 5).
@@ -26,23 +30,42 @@ class ReplaceError(Exception):
     pass
 
 
-def repo_for(location: str) -> Path:
+def repo_for(location: str) -> Path | str:
+    if backup.is_sftp(location):
+        return location.rstrip("/") + "/overhub"
     return Path(location.rstrip("/")) / "overhub"
 
 
-def scan(location: str, key: str) -> list[dict]:
-    """OverHub snapshots in <location>/overhub, readable with key. Newest first."""
-    try:
-        location = backup.check_location(location)
-    except ValueError as exc:
-        raise ReplaceError(str(exc))
-    if not backup.target_available(BackupTarget(name="scan", location=location), writable=False, fresh=True):
-        raise ReplaceError("Ordner nicht erreichbar. Ist die Backup-Disk eingesteckt?")
+def scan(location: str, key: str, password: str | None = None) -> list[dict]:
+    """OverHub snapshots in <location>/overhub, readable with key. Newest first.
+    location: a folder below /mnt/overhub, or an SFTP location (with password)."""
+    with backup.sftp_login(location, password):
+        return _scan(location, key, password)
+
+
+def _scan(location: str, key: str, password: str | None) -> list[dict]:
     repo = repo_for(location)
-    if not (repo / "config").exists():
-        raise ReplaceError(f"In {location} liegt kein OverHub-Backup")
-    if not backup.restic(repo, "cat", "config", timeout=120, password=key).ok:
-        raise ReplaceError("Der Wiederherstellungs-Schlüssel passt nicht zu diesem Backup")
+    if backup.is_sftp(location):
+        problem = backup.sftp_check(location, password or "")
+        if problem:
+            raise ReplaceError(problem)
+        result = backup.restic(repo, "cat", "config", timeout=120, password=key)
+        if not result.ok:
+            if "wrong password" in result.stderr + result.output:
+                raise ReplaceError("Der Wiederherstellungs-Schlüssel passt nicht zu diesem Backup")
+            raise ReplaceError(f"In {backup.sftp_fields(location)['path']} auf dem NAS liegt kein OverHub-Backup")
+    else:
+        try:
+            location = backup.check_location(location)
+        except ValueError as exc:
+            raise ReplaceError(str(exc))
+        if not backup.target_available(BackupTarget(name="scan", location=location), writable=False, fresh=True):
+            raise ReplaceError("Ordner nicht erreichbar. Ist die Backup-Disk eingesteckt?")
+        repo = repo_for(location)
+        if not (repo / "config").exists():
+            raise ReplaceError(f"In {location} liegt kein OverHub-Backup")
+        if not backup.restic(repo, "cat", "config", timeout=120, password=key).ok:
+            raise ReplaceError("Der Wiederherstellungs-Schlüssel passt nicht zu diesem Backup")
     result = []
     for snap in backup.snapshots(repo, backup.OVERHUB_ID, password=key):
         sid = snap.get("short_id") or snap["id"][:8]
@@ -56,12 +79,17 @@ def scan(location: str, key: str) -> list[dict]:
     return sorted(result, key=lambda s: s["time"] or "", reverse=True)
 
 
-def _latest_app_snapshot(repo: Path, app_id: str, key: str) -> str | None:
+def _latest_app_snapshot(repo: Path | str, app_id: str, key: str) -> str | None:
     snaps = sorted(backup.snapshots(repo, app_id, password=key), key=lambda s: s.get("time") or "")
     return (snaps[-1].get("short_id") or snaps[-1]["id"][:8]) if snaps else None
 
 
-def run(log, location: str, key: str, snapshot_id: str) -> None:
+def run(log, location: str, key: str, snapshot_id: str, password: str | None = None) -> None:
+    with backup.sftp_login(location, password):
+        _run(log, location, key, snapshot_id, password)
+
+
+def _run(log, location: str, key: str, snapshot_id: str, password: str | None) -> None:
     db = SessionLocal()
     try:
         if db.query(InstalledApp).count():
@@ -87,7 +115,11 @@ def run(log, location: str, key: str, snapshot_id: str) -> None:
             roles = con.execute(
                 "select u.username, r.app_id, r.role from user_role r join user u on u.id = r.user_id"
             ).fetchall() if "user_role" in tables else None  # backups of OverHub < 0.4.0 have no roles
-            targets = con.execute("select name, location from backup_target").fetchall()
+            target_columns = {r[1] for r in con.execute("pragma table_info(backup_target)")}
+            targets = con.execute(  # NAS passwords since OverHub 0.6.0
+                "select name, location, password from backup_target" if "password" in target_columns
+                else "select name, location, null from backup_target"
+            ).fetchall()
             apps = con.execute("select id, components from installed_app order by id").fetchall()
         finally:
             con.close()
@@ -100,20 +132,24 @@ def run(log, location: str, key: str, snapshot_id: str) -> None:
         backup.set_setting("backup_key_acknowledged", "1")
         log("Wiederherstellungs-Schlüssel übernommen")
 
+        # The source becomes a target too; its password is the one just typed in
+        # (proven to work, the old database may hold an outdated one).
+        source = location.rstrip("/")
+        wanted = [(n, l, password if os.path.normpath(l) == os.path.normpath(source) and password else pw)
+                  for n, l, pw in targets]
+        if os.path.normpath(source) not in {os.path.normpath(l) for _, l, _ in wanted}:
+            wanted.append(("NAS" if backup.is_sftp(source) else "Backup-Disk", source, password))
         db = SessionLocal()
         try:
             known = {os.path.normpath(t.location) for t in db.query(BackupTarget)}
-            wanted = list(targets)
-            if os.path.normpath(location.rstrip("/")) not in {os.path.normpath(l) for _, l in wanted}:
-                wanted.append(("Backup-Disk", location.rstrip("/")))
-            for name, loc in wanted:
+            for name, loc, pw in wanted:
                 if os.path.normpath(loc) not in known:
-                    db.add(BackupTarget(name=name, location=loc))
+                    db.add(BackupTarget(name=name, location=loc, password=pw if backup.is_sftp(loc) else None))
                     known.add(os.path.normpath(loc))
             db.commit()
         finally:
             db.close()
-        log(f"Backup-Ziele übernommen: {', '.join(n for n, _ in wanted)}")
+        log(f"Backup-Ziele übernommen: {', '.join(n for n, _, _ in wanted)}")
 
         restored, failed = [], []
         for app_id, components in apps:

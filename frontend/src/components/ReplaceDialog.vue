@@ -5,7 +5,10 @@ import ModalShell from "./ModalShell.vue";
 
 const emit = defineEmits(["close", "started"]);
 
+const source = ref("disk"); // disk | nas
 const location = ref("");
+const nas = ref({ host: "", user: "", password: "", path: "" });
+const showNasPassword = ref(false);
 const key = ref("");
 const snapshots = ref(null);
 const chosen = ref("");
@@ -20,12 +23,23 @@ onMounted(async () => {
   }
 });
 
+// Where the old backup lies, as the API expects it.
+function sourceBody() {
+  return source.value === "nas" ? { kind: "sftp", ...nas.value } : { kind: "dir", location: location.value };
+}
+
+function chooseSource(value) {
+  source.value = value;
+  snapshots.value = null;
+  error.value = "";
+}
+
 async function scan() {
   error.value = "";
   busy.value = true;
   snapshots.value = null;
   try {
-    snapshots.value = await api("/backup/replace/scan", { method: "POST", body: { location: location.value, key: key.value } });
+    snapshots.value = await api("/backup/replace/scan", { method: "POST", body: { ...sourceBody(), key: key.value } });
     chosen.value = snapshots.value[0]?.id || "";
   } catch (e) {
     error.value = e.message;
@@ -39,7 +53,7 @@ async function start() {
   error.value = "";
   busy.value = true;
   try {
-    const body = { location: location.value, key: key.value, snapshot_id: chosen.value };
+    const body = { ...sourceBody(), key: key.value, snapshot_id: chosen.value };
     emit("started", (await api("/backup/replace", { method: "POST", body })).job_id);
   } catch (e) {
     error.value = e.message;
@@ -63,8 +77,27 @@ function when(iso) {
 
       <form class="space-y-3" @submit.prevent="scan">
         <div>
-          <label class="mb-1 block text-xs text-gray-400">Wo liegt das Backup? (Backup-Disk mit dem Namen OVERHUB einstecken — sie erscheint unter /mnt/overhub/backup)</label>
-          <input v-model="location" class="input" required />
+          <div class="mb-2 text-xs text-gray-400">Wo liegt das Backup?</div>
+          <div class="mb-3 flex gap-2">
+            <button type="button" :class="source === 'disk' ? 'btn-primary' : 'btn-secondary'" @click="chooseSource('disk')">Backup-Disk</button>
+            <button type="button" :class="source === 'nas' ? 'btn-primary' : 'btn-secondary'" @click="chooseSource('nas')">NAS</button>
+          </div>
+          <template v-if="source === 'disk'">
+            <label class="mb-1 block text-xs text-gray-400">Backup-Disk mit dem Namen OVERHUB einstecken — sie erscheint unter /mnt/overhub/backup</label>
+            <input v-model="location" class="input" required />
+          </template>
+          <div v-else class="grid gap-2 sm:grid-cols-2">
+            <input v-model="nas.host" class="input" placeholder="Server, z.B. nas.local" autocomplete="off" required />
+            <input v-model="nas.user" class="input" placeholder="Benutzer" autocomplete="off" required />
+            <div class="flex items-center gap-2">
+              <input v-model="nas.password" :type="showNasPassword ? 'text' : 'password'" class="input" placeholder="Passwort"
+                     autocomplete="new-password" required />
+              <button type="button" class="shrink-0 text-xs text-gray-400 hover:text-gray-200" @click="showNasPassword = !showNasPassword">
+                {{ showNasPassword ? "Verbergen" : "Anzeigen" }}
+              </button>
+            </div>
+            <input v-model="nas.path" class="input" placeholder="Ordner des alten Geräts, z.B. backup/geraetename" autocomplete="off" required />
+          </div>
         </div>
         <div>
           <label class="mb-1 block text-xs text-gray-400">Wiederherstellungs-Schlüssel des alten Geräts</label>
