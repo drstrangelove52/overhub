@@ -40,6 +40,9 @@ def test_backup_to_sftp_and_restore(admin, host):
     assert REPO in host.repos
     sftp_calls = [c for c in host.calls if c[0] == "restic" and c[2] == REPO]
     assert sftp_calls and all("-o" in c and "nas-pass-123" not in " ".join(c) for c in sftp_calls)
+    command = sftp_calls[0][sftp_calls[0].index("-o") + 1]
+    assert "," not in command  # restic splits option values at commas
+    assert command.endswith("overhub_backup@nas.local -s sftp")
     assert all(e.get("SSHPASS") == "nas-pass-123" for e in host.restic_env if e.get("SSHPASS"))
 
     snaps = [s for s in admin.get("/api/apps/overcook/snapshots").json() if s["repo"] == REPO]

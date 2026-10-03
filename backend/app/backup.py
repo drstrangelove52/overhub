@@ -139,7 +139,8 @@ def _ssh_options() -> list[str]:
         "-o", f"UserKnownHostsFile={ssh_dir / 'known_hosts'}",
         "-o", "StrictHostKeyChecking=accept-new",
         "-o", "PubkeyAuthentication=no",
-        "-o", "PreferredAuthentications=password,keyboard-interactive",
+        # No commas anywhere: restic cuts its `-o sftp.command=…` value at a comma.
+        "-o", "PreferredAuthentications=password",
         "-o", "NumberOfPasswordPrompts=1",
         "-o", "ConnectTimeout=15",
         "-o", "ServerAliveInterval=30",
