@@ -17,7 +17,8 @@ def test_add_sftp_target_checks_login_and_hides_password(admin, host):
     assert r.status_code == 200 and r.json()["available"] is True
     targets = admin.get("/api/backup").json()["targets"]
     assert targets == [{"id": targets[0]["id"], "name": "NAS", "available": True,
-                        "location": "sftp:overhub_backup@nas.local:/backup_primary"}]
+                        "location": "sftp:overhub_backup@nas.local:/backup_primary",
+                        "kind": "sftp", "host": "nas.local", "user": "overhub_backup", "path": "backup_primary"}]
     assert "nas-pass-123" not in admin.get("/api/backup").text
     login = next(c for c in host.calls if c[0] == "sshpass")
     assert "nas-pass-123" not in " ".join(login) and "StrictHostKeyChecking=accept-new" in login
@@ -91,3 +92,41 @@ def test_backup_names_a_foreign_repository(admin, host):
     job = wait_job(admin, admin.post("/api/backup/run").json()["job_id"])
     assert job["status"] == "failed" and "anderen OverHub-Geräts" in job["log"]
     assert not any(c[0] == "restic" and c[2] == REPO and "init" in c for c in host.calls)
+
+
+def test_edit_sftp_target(admin, host):
+    admin.post("/api/backup/targets", json={**NAS, "password": "nas-pass-123"})
+    target = admin.get("/api/backup").json()["targets"][0]
+    assert target["kind"] == "sftp" and target["host"] == "nas.local" and target["path"] == "backup_primary"
+    assert "password" not in target
+
+    # rename, keep the password (empty field)
+    r = admin.put(f"/api/backup/targets/{target['id']}", json={**NAS, "name": "Synology", "password": ""})
+    assert r.status_code == 200 and r.json()["available"] is True
+    assert admin.get("/api/backup").json()["targets"][0]["name"] == "Synology"
+
+    # a wrong new password is refused and nothing changes
+    r = admin.put(f"/api/backup/targets/{target['id']}", json={**NAS, "password": "wrong-pass"})
+    assert r.status_code == 400
+    host.sftp_password = "changed-on-nas"
+    backup._available_cache.clear()
+    assert admin.get("/api/backup").json()["targets"][0]["available"] is False
+    r = admin.put(f"/api/backup/targets/{target['id']}", json={**NAS, "password": "changed-on-nas"})
+    assert r.status_code == 200 and r.json()["available"] is True
+
+    # another folder; one with another device's backup is refused and the old one stays
+    host.repos["sftp:overhub_backup@nas.local:/backup_primary/other/overhub"] = "key-of-another-device"
+    r = admin.put(f"/api/backup/targets/{target['id']}", json={**NAS, "path": "backup_primary/other", "password": ""})
+    assert r.status_code == 409
+    assert admin.get("/api/backup").json()["targets"][0]["path"] == "backup_primary"
+    r = admin.put(f"/api/backup/targets/{target['id']}", json={**NAS, "path": "backup_primary/pi", "password": ""})
+    assert r.status_code == 200 and admin.get("/api/backup").json()["targets"][0]["path"] == "backup_primary/pi"
+
+
+def test_edit_folder_target_name(admin, host):
+    admin.post("/api/backup/targets", json={**NAS, "password": "nas-pass-123"})
+    admin.post("/api/backup/targets", json={**NAS, "path": "backup_primary/two", "password": "nas-pass-123"})
+    first, second = admin.get("/api/backup").json()["targets"]
+    r = admin.put(f"/api/backup/targets/{second['id']}", json={**NAS, "password": ""})
+    assert r.status_code == 409  # same folder as the first target
+    assert admin.put("/api/backup/targets/999", json={**NAS}).status_code == 404

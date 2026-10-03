@@ -34,7 +34,8 @@ def _iso(dt):
 @router.get("")
 def overview(db: DbSession = Depends(get_db)):
     targets = [
-        {"id": t.id, "name": t.name, "location": t.location, "available": backup.target_available(t)}
+        {"id": t.id, "name": t.name, "location": t.location, "available": backup.target_available(t),
+         **({"kind": "sftp", **backup.sftp_fields(t.location)} if backup.is_sftp(t.location) else {"kind": "dir"})}
         for t in db.query(BackupTarget).order_by(BackupTarget.id)
     ]
     apps = []
@@ -59,8 +60,10 @@ def overview(db: DbSession = Depends(get_db)):
     }
 
 
-@router.post("/targets")
-def add_target(body: TargetIn, db: DbSession = Depends(get_db)):
+def _resolve(body: TargetIn, db: DbSession, current: BackupTarget | None = None) -> tuple[str, str | None]:
+    """Checked location and password for a new or edited target; nothing is
+    stored when the input is wrong. Editing an SFTP target with an empty
+    password field keeps the stored password."""
     try:
         if body.kind == "sftp":
             location = backup.sftp_location(body.user, body.host, body.path)
@@ -69,16 +72,22 @@ def add_target(body: TargetIn, db: DbSession = Depends(get_db)):
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     for existing in db.query(BackupTarget):
-        if os.path.normpath(existing.location) == os.path.normpath(location):
+        if existing is not current and os.path.normpath(existing.location) == os.path.normpath(location):
             raise HTTPException(409, f"Dieser Ordner ist schon als Ziel „{existing.name}“ eingerichtet")
-    password = None
-    if body.kind == "sftp":
-        if not body.password:
-            raise HTTPException(400, "Passwort fehlt")
-        problem = backup.sftp_check(location, body.password)
-        if problem:  # nothing stored: fix the input and try again
-            raise HTTPException(400, problem)
-        password = body.password
+    if body.kind != "sftp":
+        return location, None
+    password = body.password or (current.password if current is not None and backup.is_sftp(current.location) else "")
+    if not password:
+        raise HTTPException(400, "Passwort fehlt")
+    problem = backup.sftp_check(location, password)
+    if problem:
+        raise HTTPException(400, problem)
+    return location, password
+
+
+@router.post("/targets")
+def add_target(body: TargetIn, db: DbSession = Depends(get_db)):
+    location, password = _resolve(body, db)
     target = BackupTarget(name=body.name.strip() or location, location=location, password=password)
     db.add(target)
     db.commit()
@@ -87,6 +96,26 @@ def add_target(body: TargetIn, db: DbSession = Depends(get_db)):
     # Saved first: restic finds an SFTP target's password in the database.
     if available and backup.foreign_repo(backup.target_repo(target)):
         db.delete(target)
+        db.commit()
+        raise HTTPException(409, backup.foreign_repo_message())
+    return {"id": target.id, "available": available}
+
+
+@router.put("/targets/{target_id}")
+def update_target(target_id: int, body: TargetIn, db: DbSession = Depends(get_db)):
+    """Name, and for an NAS server, user, password and folder. A new folder
+    starts a new backup history there; the old backups stay where they are."""
+    target = db.get(BackupTarget, target_id)
+    if target is None:
+        raise HTTPException(404)
+    location, password = _resolve(body, db, target)
+    before = (target.name, target.location, target.password)
+    target.name, target.location, target.password = body.name.strip() or location, location, password
+    db.commit()
+    backup._available_cache.clear()
+    available = backup.target_available(target, fresh=True)
+    if location != before[1] and available and backup.foreign_repo(backup.target_repo(target)):
+        target.name, target.location, target.password = before
         db.commit()
         raise HTTPException(409, backup.foreign_repo_message())
     return {"id": target.id, "available": available}

@@ -20,6 +20,33 @@ const showNasForm = ref(false);
 const nas = ref({ name: "NAS", host: "", user: "", password: "", path: "" });
 const showNasPassword = ref(false);
 const nasBusy = ref(false);
+// Editing one target in place: name, for an NAS also server, user, folder, password.
+const editing = ref(null); // { id, kind, name, location, host, user, path, password, originalPath }
+const editBusy = ref(false);
+const editError = ref("");
+const showEditPassword = ref(false);
+
+function startEdit(t) {
+  editing.value = { ...t, password: "", originalPath: t.path };
+  editError.value = "";
+  showEditPassword.value = false;
+}
+
+async function saveEdit() {
+  editError.value = "";
+  editBusy.value = true; // an NAS is logged in to once before saving
+  try {
+    const { id, ...body } = editing.value;
+    await api(`/backup/targets/${id}`, { method: "PUT", body });
+    editing.value = null;
+    await load();
+    emit("changed");
+  } catch (e) {
+    editError.value = e.message;
+  } finally {
+    editBusy.value = false;
+  }
+}
 
 async function load() {
   try {
@@ -154,7 +181,34 @@ function when(iso) {
       <!-- 2. Ziele -->
       <section>
         <h4 class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Wohin wird gesichert?</h4>
-        <div v-for="t in data.targets" :key="t.id" class="mb-2 flex items-center justify-between gap-2 rounded-lg border border-gray-800 px-3 py-2">
+        <div v-for="t in data.targets" :key="t.id" class="mb-2 rounded-lg border border-gray-800 px-3 py-2">
+          <form v-if="editing && editing.id === t.id" class="space-y-2 py-1" @submit.prevent="saveEdit">
+            <div class="grid gap-2 sm:grid-cols-2">
+              <input v-model="editing.name" class="input" placeholder="Name" required />
+              <template v-if="t.kind === 'sftp'">
+                <input v-model="editing.host" class="input" placeholder="Server, z.B. nas.local" autocomplete="off" required />
+                <input v-model="editing.user" class="input" placeholder="Benutzer" autocomplete="off" required />
+                <div class="flex items-center gap-2">
+                  <input v-model="editing.password" :type="showEditPassword ? 'text' : 'password'" class="input"
+                         placeholder="Passwort (leer = unverändert)" autocomplete="new-password" />
+                  <button type="button" class="shrink-0 text-xs text-gray-400 hover:text-gray-200" @click="showEditPassword = !showEditPassword">
+                    {{ showEditPassword ? "Verbergen" : "Anzeigen" }}
+                  </button>
+                </div>
+                <input v-model="editing.path" class="input sm:col-span-2" placeholder="Ordner, z.B. backup/geraetename" autocomplete="off" required />
+              </template>
+              <div v-else class="break-all self-center text-xs text-gray-500">{{ t.location }}</div>
+            </div>
+            <p v-if="t.kind === 'sftp' && editing.path.replace(/^\/+|\/+$/g, '') !== editing.originalPath" class="text-xs text-yellow-300">
+              Neuer Ordner: die Sicherungen beginnen dort neu, die bisherigen bleiben im alten Ordner.
+            </p>
+            <p v-if="editError" class="text-red-400">{{ editError }}</p>
+            <div class="flex justify-end gap-2">
+              <button type="button" class="btn-secondary" @click="editing = null">Abbrechen</button>
+              <button class="btn-primary" :disabled="editBusy">{{ editBusy ? "Prüfe …" : "Speichern" }}</button>
+            </div>
+          </form>
+          <div v-else class="flex items-center justify-between gap-2">
           <div class="min-w-0">
             <div class="font-medium">{{ t.name }}</div>
             <div class="break-all text-xs text-gray-500">{{ t.location }}</div>
@@ -163,7 +217,9 @@ function when(iso) {
             <span class="rounded-full px-2 py-0.5 text-xs" :class="t.available ? 'bg-green-500/20 text-green-300' : 'bg-yellow-500/20 text-yellow-300'">
               {{ t.available ? "bereit" : t.location === data.usb_path ? "nicht eingesteckt" : t.location.startsWith("sftp:") ? "nicht erreichbar" : "nicht verfügbar" }}
             </span>
+            <button class="text-xs text-gray-400 hover:text-gray-200" @click="startEdit(t)">Bearbeiten</button>
             <button class="text-gray-500 hover:text-red-300" title="Ziel entfernen" @click="removeTarget(t)">✕</button>
+          </div>
           </div>
         </div>
 

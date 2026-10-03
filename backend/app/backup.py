@@ -128,6 +128,12 @@ def sftp_location(user: str, host: str, path: str) -> str:
     return location
 
 
+def sftp_fields(location: str) -> dict:
+    """Server, user and folder of an SFTP target for the edit form (no password)."""
+    user, host, path = _sftp_parts(location)
+    return {"host": host, "user": user, "path": path.lstrip("/")}
+
+
 def _sftp_parts(location: str) -> tuple[str, str, str]:
     user, host, path = SFTP_LOCATION.fullmatch(location).groups()
     return user, host, path
