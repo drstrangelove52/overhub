@@ -161,20 +161,29 @@ _SSHPASS_ERRORS = {
 
 
 def sftp_check(location: str, password: str) -> str | None:
-    """None if the folder can be listed with these credentials, else a message."""
+    """None if the folder can be listed with these credentials, else a message.
+
+    The commands go in on stdin, not with `sftp -b`: batch mode makes ssh skip
+    the password prompt, so sshpass never gets to answer it. Without -b sftp
+    does not exit non-zero when a command fails, hence the look at the output.
+    """
     user, host, path = _sftp_parts(location)
-    batch = settings.data_dir / "cache" / "sftp-check"
-    batch.parent.mkdir(parents=True, exist_ok=True)
-    batch.write_text(f'ls "{path}"\n')
+    commands = settings.data_dir / "cache" / "sftp-check"
+    commands.parent.mkdir(parents=True, exist_ok=True)
+    commands.write_text(f'ls "{path}"\n')
     result = runner.run(
-        ["sshpass", "-e", "sftp", "-b", str(batch), *_ssh_options(), f"{user}@{host}"],
-        env={"SSHPASS": password}, merge_stderr=True, timeout=60,
+        ["sshpass", "-e", "sftp", *_ssh_options(), f"{user}@{host}"],
+        env={"SSHPASS": password}, merge_stderr=True, timeout=60, stdin_path=commands,
     )
-    if result.ok:
-        return None
     if result.returncode in _SSHPASS_ERRORS:
         return _SSHPASS_ERRORS[result.returncode]
+    if result.ok and not any(m in result.output for m in _SFTP_COMMAND_FAILED):
+        return None
     return _explain_sftp(result.output, host, path)
+
+
+# sftp output when a command failed after a successful login
+_SFTP_COMMAND_FAILED = ("Can't ls", "not found", "No such file", "Permission denied")
 
 
 # ssh/sftp messages -> what to check. sftp always ends with a generic

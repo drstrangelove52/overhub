@@ -9,6 +9,8 @@ REPO = "sftp:overhub_backup@nas.local:/backup_primary/overhub"
 def test_add_sftp_target_checks_login_and_hides_password(admin, host):
     r = admin.post("/api/backup/targets", json={**NAS, "password": "wrong-pass"})
     assert r.status_code == 400 and "Passwort falsch" in r.json()["detail"]
+    r = admin.post("/api/backup/targets", json={**NAS, "path": "missing", "password": "nas-pass-123"})
+    assert r.status_code == 400 and "gibt es auf dem NAS nicht" in r.json()["detail"]
     assert admin.get("/api/backup").json()["targets"] == []  # nothing stored
 
     r = admin.post("/api/backup/targets", json={**NAS, "password": "nas-pass-123"})
