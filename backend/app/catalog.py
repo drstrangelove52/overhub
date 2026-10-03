@@ -50,6 +50,18 @@ class BackupSpec(BaseModel):
     volumes: list[str] = []  # compose volume names with user data besides the dump
 
 
+class EmergencyLogin(BaseModel):
+    """Local admin account for when OverHub is down (contract rule 8). OverHub
+    sets a new password: `docker compose exec -T <service> <command>` with the
+    password on stdin (never on a command line)."""
+
+    service: str
+    username: str
+    command: str  # creates or resets <username> as admin, password from stdin
+    # Older app versions may not read stdin (OverCook < 0.2.3 would set "-" as password).
+    min_version: str = "0.0.0"
+
+
 class Manifest(BaseModel):
     schema_: int = Field(alias="schema")
     id: str
@@ -68,6 +80,7 @@ class Manifest(BaseModel):
     health: str = "/api/health"
     version_endpoint: str = "/api/version"
     backup: BackupSpec | None = None  # None: no server-side data (manifest says `backup: none`)
+    emergency_login: EmergencyLogin | None = None  # None: app has no login of its own
 
     @field_validator("backup", mode="before")
     @classmethod

@@ -5,7 +5,7 @@ schema: 1
 id: overcook
 name: OverCook
 description: Rezepte sammeln und skalieren, Einkaufsliste offline auf dem Handy
-version: 0.2.2
+version: 0.2.3
 min_overhub: 0.1.0
 port: 8443
 arch: [amd64, arm64]
@@ -14,9 +14,9 @@ pwa: true
 icon: icon.png
 
 images:
-  ghcr.io/drstrangelove52/overcook-backend: sha256:c7eb89fa2b5a471a4fe58913e114b558e5f6f57447072fbbe600d0a9fce185e0
-  ghcr.io/drstrangelove52/overcook-frontend: sha256:e0223149ac7e69b7a4323c94b6c180a121df998b36a2a8bf5fc02003ddb9c77a
-  ghcr.io/drstrangelove52/overcook-mcp: sha256:5a4bcdf2f22dadc846012425b6ebd7bcfd57e515366566a165f02dc695a7dd53
+  ghcr.io/drstrangelove52/overcook-backend: sha256:6f0564b18d36b5fdd414054a83f3a4aef5f158e690edc626fc2b931eb72705ca
+  ghcr.io/drstrangelove52/overcook-frontend: sha256:5fb54bb8edfaad308c1cefcb5d0588bd92e3406fb103f8fb89136651cf42f36f
+  ghcr.io/drstrangelove52/overcook-mcp: sha256:c8a7f71812530cebc177a199c3f89ed18e35f875ec3b8927f21ca424b4b84ed9
 
 env:
   generated:
@@ -49,6 +49,14 @@ components:
 
 admin:
   mode: env
+
+# Local admin for when OverHub is down (contract rule 8). OverHub sets the
+# password ("Notfall-Konto"); create_user reads it from stdin ("-").
+emergency_login:
+  service: backend
+  username: notfall
+  command: python -m app.create_user notfall - admin
+  min_version: 0.2.3
 
 health: /api/health
 version_endpoint: /api/version

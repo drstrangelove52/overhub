@@ -10,6 +10,7 @@ import BackupDialog from "../components/BackupDialog.vue";
 import DataDialog from "../components/DataDialog.vue";
 import ReplaceDialog from "../components/ReplaceDialog.vue";
 import UsersDialog from "../components/UsersDialog.vue";
+import EmergencyDialog from "../components/EmergencyDialog.vue";
 
 defineProps({ user: Object });
 defineEmits(["logout"]);
@@ -26,6 +27,9 @@ const showBackup = ref(false);
 const dataFor = ref(null);
 const showReplace = ref(false);
 const showUsers = ref(false);
+// By id: the app list reloads every 10 s and the dialog should see fresh state.
+const emergencyId = ref(null);
+const emergencyApp = computed(() => apps.value.find((a) => a.id === emergencyId.value));
 const backupInfo = ref(null);
 let timer;
 
@@ -71,6 +75,9 @@ const warnings = computed(() => {
     }
     if (!b.key_acknowledged) list.push("Der Wiederherstellungs-Schlüssel für die Backups ist noch nicht gesichert (Backup → Schlüssel anzeigen).");
   }
+  const noEmergency = installed.value.filter((a) => a.emergency_login && !a.emergency_login.confirmed_at).map((a) => a.name);
+  if (noEmergency.length)
+    list.push(`Notfall-Konto noch nicht eingerichtet: ${noEmergency.join(", ")}. Ohne es kommt man nicht in die App, wenn OverHub nicht läuft (App → Notfall-Konto).`);
   return list;
 });
 
@@ -165,6 +172,7 @@ function statusOf(app) {
                 </button>
                 <button v-if="app.has_backup" class="btn-secondary" :disabled="app.busy" @click="dataFor = app">Daten</button>
                 <button class="btn-secondary" @click="logsFor = app">Logs</button>
+                <button v-if="app.emergency_login" class="btn-secondary" :disabled="app.busy || !app.healthy" @click="emergencyId = app.id">Notfall-Konto</button>
                 <button v-if="app.healthy" class="btn-secondary" :disabled="app.busy" @click="action(app, 'stop')">Stoppen</button>
                 <button v-else class="btn-secondary" :disabled="app.busy" @click="action(app, 'start')">Starten</button>
                 <button class="btn-secondary text-red-300" :disabled="app.busy" @click="removing = app">Entfernen</button>
@@ -201,6 +209,7 @@ function statusOf(app) {
     <LogsDialog v-if="logsFor" :app="logsFor" @close="logsFor = null" />
     <SettingsDialog v-if="showSettings" :system="system" :user="user" @close="showSettings = false" />
     <BackupDialog v-if="showBackup" @close="showBackup = false" @changed="load" @started="(id) => { showBackup = false; jobId = id; }" />
+    <EmergencyDialog v-if="emergencyApp" :app="emergencyApp" @close="emergencyId = null" @changed="load" />
     <UsersDialog v-if="showUsers" :apps="apps" :me="user" @close="showUsers = false" />
     <ReplaceDialog v-if="showReplace" @close="showReplace = false" @started="onJobStarted" />
     <DataDialog v-if="dataFor" :app="dataFor" @close="dataFor = null" @started="onJobStarted" />

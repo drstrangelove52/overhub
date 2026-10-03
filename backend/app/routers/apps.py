@@ -15,7 +15,7 @@ from app import backup, docker_ops, operations, tailscale_ops
 from app.catalog import get_manifest, load_catalog, version_tuple
 from app.database import get_db
 from app.envfile import validate_value
-from app.models import InstalledApp, Job
+from app.models import InstalledApp, Job, Setting, utcnow
 from app.routers.auth import require_admin
 
 router = APIRouter(prefix="/api", tags=["apps"], dependencies=[Depends(require_admin)])
@@ -91,6 +91,7 @@ def list_apps(db: DbSession = Depends(get_db)):
             # Left behind by "remove, keep data": a new install reuses it.
             "data_kept": app is None and (operations.app_dir(manifest.id) / ".env").exists(),
             "pending_credentials_job": pending.get(manifest.id),
+            "emergency_login": None,
         }
         if app:
             states = docker_ops.ps(operations.app_dir(manifest.id))
@@ -102,6 +103,12 @@ def list_apps(db: DbSession = Depends(get_db)):
                 "services": [s.__dict__ for s in states],
                 "healthy": docker_ops.all_healthy(states),
             })
+            if manifest.emergency_login and _emergency_supported(manifest, app.version):
+                confirmed = db.get(Setting, operations.emergency_key(manifest.id))
+                entry["emergency_login"] = {
+                    "username": manifest.emergency_login.username,
+                    "confirmed_at": confirmed.value if confirmed else None,
+                }
         result.append(entry)
     return result
 
@@ -208,6 +215,47 @@ def upload_import(file: UploadFile):
         shutil.copyfileobj(file.file, out, length=1024 * 1024)
     os.chmod(path, 0o600)
     return {"import_id": import_id, "size": path.stat().st_size}
+
+
+def _emergency_supported(manifest, installed_version: str) -> bool:
+    return version_tuple(installed_version) >= version_tuple(manifest.emergency_login.min_version)
+
+
+def _emergency_manifest(app_id: str, db: DbSession):
+    manifest = _manifest_or_404(app_id)
+    if manifest.emergency_login is None:
+        raise HTTPException(404, f"{manifest.name} hat kein Notfall-Konto")
+    app = db.get(InstalledApp, app_id)
+    if app is None:
+        raise HTTPException(404, "Nicht installiert")
+    if not _emergency_supported(manifest, app.version):
+        raise HTTPException(409, f"Zuerst {manifest.name} auf Version {manifest.emergency_login.min_version} aktualisieren")
+    return manifest
+
+
+@router.post("/apps/{app_id}/emergency-login")
+def emergency_login(app_id: str, db: DbSession = Depends(get_db)):
+    """New password for the app's local emergency admin, shown once."""
+    manifest = _emergency_manifest(app_id, db)
+    if operations.is_busy(app_id):
+        raise HTTPException(409, "Die App ist gerade beschäftigt")
+    try:
+        password = operations.set_emergency_password(manifest)
+    except operations.OperationError as exc:
+        raise HTTPException(502, str(exc))
+    return {"username": manifest.emergency_login.username, "password": password}
+
+
+@router.post("/apps/{app_id}/emergency-login/ack")
+def emergency_login_ack(app_id: str, db: DbSession = Depends(get_db)):
+    """The admin typed back the end of the password: it is stored somewhere."""
+    _emergency_manifest(app_id, db)
+    key = operations.emergency_key(app_id)
+    setting = db.get(Setting, key) or Setting(key=key, value="")
+    setting.value = utcnow().isoformat()
+    db.merge(setting)
+    db.commit()
+    return {"confirmed_at": setting.value}
 
 
 @router.post("/apps/{app_id}/start")

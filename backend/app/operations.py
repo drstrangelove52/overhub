@@ -5,6 +5,9 @@ runs in its own thread with its own DB session; only one job per app at a
 time.
 """
 import json
+import os
+import shlex
+import tempfile
 import platform
 import shutil
 import threading
@@ -19,7 +22,7 @@ from app.config import settings
 from app.database import SessionLocal
 from app.bootstrap import grant_admins
 from app.envfile import read_env, validate_value, write_env
-from app.models import InstalledApp, Job, UserRole, utcnow
+from app.models import InstalledApp, Job, Setting, UserRole, utcnow
 from app.security import generate_secret
 
 
@@ -427,6 +430,7 @@ def uninstall(log, app_id: str, delete_data: bool, export_passphrase: str | None
         db.delete(db.get(InstalledApp, app_id))
         if delete_data:  # with the data the app's users are gone too; kept data keeps its roles
             db.query(UserRole).filter(UserRole.app_id == app_id).delete()
+            db.query(Setting).filter(Setting.key == emergency_key(app_id)).delete()
         db.commit()
     finally:
         db.close()
@@ -474,3 +478,36 @@ def stop(log, app_id: str) -> None:
     log(result.output.strip() or "gestoppt")
     if not result.ok:
         raise OperationError("Stoppen fehlgeschlagen")
+
+
+# --- emergency account (local admin of an app, for when OverHub is down) ---
+
+def emergency_key(app_id: str) -> str:
+    """Setting holding when the admin confirmed having stored the password."""
+    return f"emergency_login:{app_id}"
+
+
+def set_emergency_password(manifest: Manifest) -> str:
+    """Create or reset the app's emergency admin with a fresh password and
+    return it (shown once, OverHub keeps no copy). Any earlier confirmation
+    is void: the old password no longer works."""
+    spec = manifest.emergency_login
+    password = generate_secret("password")
+    app_dir_ = app_dir(manifest.id)
+    fd, tmp = tempfile.mkstemp(dir=app_dir_, prefix=".emergency-")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(password + "\n")
+        result = docker_ops.compose(app_dir_, "exec", "-T", spec.service, *shlex.split(spec.command),
+                                    timeout=120, stdin_path=Path(tmp))
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+    if not result.ok:
+        raise OperationError("Passwort konnte nicht gesetzt werden: " + result.output.strip()[-300:])
+    db = SessionLocal()
+    try:
+        db.query(Setting).filter(Setting.key == emergency_key(manifest.id)).delete()
+        db.commit()
+    finally:
+        db.close()
+    return password
