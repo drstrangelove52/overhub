@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { api } from "../api";
 import ModalShell from "./ModalShell.vue";
 
@@ -7,6 +7,9 @@ import ModalShell from "./ModalShell.vue";
 // the password, so it is shown once and confirmed like the recovery key.
 const props = defineProps({ app: Object });
 const emit = defineEmits(["close", "changed"]);
+
+// The app forwards to OverHub's login while OverHub runs; this page does not.
+const loginUrl = computed(() => (props.app.url ? props.app.url.replace(/\/$/, "") + props.app.emergency_login.login_path : ""));
 
 const step = ref("intro"); // intro | show | confirm | done
 const account = ref(null); // { username, password }
@@ -68,6 +71,11 @@ function close() {
         Normalerweise meldet man sich in {{ app.name }} über OverHub an. Läuft OverHub nicht, geht das nur mit dem lokalen
         Konto <b class="text-gray-200">{{ app.emergency_login.username }}</b> (Admin). OverHub speichert das Passwort nicht:
         in den Passwort-Manager oder ausdrucken.
+      </p>
+      <p v-if="loginUrl" class="text-gray-400">
+        Lokal anmelden:
+        <a :href="loginUrl" target="_blank" rel="noopener" class="break-all text-orange-400 hover:underline">{{ loginUrl }}</a>
+        → „Lokales Konto (Notfall)“. Ist OverHub nicht erreichbar, zeigt {{ app.name }} diese Anmeldung von selbst.
       </p>
 
       <template v-if="step === 'intro'">

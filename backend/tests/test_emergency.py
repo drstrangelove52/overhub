@@ -24,7 +24,7 @@ def _overcook(admin):
 
 def test_emergency_login_sets_password_via_stdin(admin, host, monkeypatch):
     wait_job(admin, admin.post("/api/apps/overcook/install", json={}).json()["job_id"])
-    assert _overcook(admin)["emergency_login"] == {"username": "notfall", "confirmed_at": None}
+    assert _overcook(admin)["emergency_login"] == {"username": "notfall", "login_path": "/login", "confirmed_at": None}
     seen = _capture_stdin(monkeypatch, host)
 
     r = admin.post("/api/apps/overcook/emergency-login")

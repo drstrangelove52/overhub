@@ -60,6 +60,8 @@ class EmergencyLogin(BaseModel):
     command: str  # creates or resets <username> as admin, password from stdin
     # Older app versions may not read stdin (OverCook < 0.2.3 would set "-" as password).
     min_version: str = "0.0.0"
+    # Page with the local login that does not forward to OverHub (shown in the dialog).
+    login_path: str = "/login"
 
 
 class Manifest(BaseModel):

@@ -107,6 +107,7 @@ def list_apps(db: DbSession = Depends(get_db)):
                 confirmed = db.get(Setting, operations.emergency_key(manifest.id))
                 entry["emergency_login"] = {
                     "username": manifest.emergency_login.username,
+                    "login_path": manifest.emergency_login.login_path,
                     "confirmed_at": confirmed.value if confirmed else None,
                 }
         result.append(entry)
