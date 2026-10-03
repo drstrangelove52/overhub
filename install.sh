@@ -124,8 +124,7 @@ else
   # The time zone follows the host (a VM may have been set up on UTC first).
   if [ -n "$HOST_TZ" ] && ! grep -qxF "OVERHUB_TZ=${HOST_TZ}" "$DATA/overhub.env"; then
     sed -i '/^OVERHUB_TZ=/d' "$DATA/overhub.env"
-    printf 'OVERHUB_TZ=%s
-' "$HOST_TZ" >>"$DATA/overhub.env"
+    printf 'OVERHUB_TZ=%s\n' "$HOST_TZ" >>"$DATA/overhub.env"
     info "Zeitzone: ${HOST_TZ}"
   fi
 fi
