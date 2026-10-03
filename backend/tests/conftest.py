@@ -78,7 +78,7 @@ class FakeHost:
                 return runner.Result(255, "ssh: connect to host nas.local port 22: Connection refused\nConnection closed")
             if (env or {}).get("SSHPASS") != self.sftp_password:
                 return runner.Result(255, "user@nas: Permission denied (publickey,password).\nConnection closed")
-            if '"/backup_primary"' not in folder:  # sftp exits 0 even when ls fails
+            if '"/backup_primary' not in folder:  # sftp exits 0 even when ls fails
                 return runner.Result(0, 'sftp> ls "/x"\nCan\'t ls: "/x" not found')
             return runner.Result(0, "sftp> ls\n#recycle")
         if cmd[0] == "restic":

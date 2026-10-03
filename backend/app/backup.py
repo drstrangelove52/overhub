@@ -21,6 +21,7 @@ All repositories share one password, the instance recovery key in
 """
 import json
 import os
+import platform
 import re
 import secrets
 import shlex
@@ -310,9 +311,28 @@ def restic(repo: Path | str, *args: str, timeout: int = 3600, password: str | No
     )
 
 
+def foreign_repo_message() -> str:
+    return (
+        "Im Ordner liegt schon die Sicherung eines anderen OverHub-Geräts (anderer Wiederherstellungs-Schlüssel). "
+        f"Für jedes Gerät einen eigenen Ordner wählen, z.B. …/{platform.node() or 'geraetename'}."
+    )
+
+
+def _wrong_key(result: runner.Result) -> bool:
+    return not result.ok and "wrong password" in (result.stderr + result.output)
+
+
+def foreign_repo(repo: Path | str) -> bool:
+    """A repository is there but opens only with another device's key."""
+    return _wrong_key(restic(repo, "cat", "config", timeout=120))
+
+
 def ensure_repo(repo: Path | str) -> None:
-    if restic(repo, "cat", "config", timeout=120).ok:
+    result = restic(repo, "cat", "config", timeout=120)
+    if result.ok:
         return
+    if _wrong_key(result):  # never init over it: that fails anyway, and the data belongs to another device
+        raise BackupError(foreign_repo_message())
     if not is_sftp(repo):  # over SFTP restic creates the folders itself
         repo.mkdir(parents=True, exist_ok=True)
     result = restic(repo, "init", timeout=120)

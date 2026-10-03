@@ -83,7 +83,13 @@ def add_target(body: TargetIn, db: DbSession = Depends(get_db)):
     db.add(target)
     db.commit()
     backup.recovery_key()  # created now, so the UI can show it right away
-    return {"id": target.id, "available": backup.target_available(target, fresh=True)}
+    available = backup.target_available(target, fresh=True)
+    # Saved first: restic finds an SFTP target's password in the database.
+    if available and backup.foreign_repo(backup.target_repo(target)):
+        db.delete(target)
+        db.commit()
+        raise HTTPException(409, backup.foreign_repo_message())
+    return {"id": target.id, "available": available}
 
 
 @router.delete("/targets/{target_id}")

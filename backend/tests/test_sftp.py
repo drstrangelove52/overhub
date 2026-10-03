@@ -71,3 +71,23 @@ def test_unreachable_nas_is_explained(admin, host):
     host.sftp_up = False
     r = admin.post("/api/backup/targets", json={**NAS, "password": "nas-pass-123"})
     assert r.status_code == 400 and "Port 22" in r.json()["detail"]
+
+
+def test_folder_with_another_devices_backup_is_refused(admin, host):
+    host.repos[REPO] = "key-of-another-device"
+    r = admin.post("/api/backup/targets", json={**NAS, "password": "nas-pass-123"})
+    assert r.status_code == 409 and "anderen OverHub-Geräts" in r.json()["detail"]
+    assert admin.get("/api/backup").json()["targets"] == []
+
+    # own subfolder works
+    r = admin.post("/api/backup/targets", json={**NAS, "path": "backup_primary/pi", "password": "nas-pass-123"})
+    assert r.status_code == 200
+
+
+def test_backup_names_a_foreign_repository(admin, host):
+    wait_job(admin, admin.post("/api/apps/overcook/install", json={}).json()["job_id"])
+    admin.post("/api/backup/targets", json={**NAS, "password": "nas-pass-123"})
+    host.repos[REPO] = "key-of-another-device"  # e.g. targets set up before this check existed
+    job = wait_job(admin, admin.post("/api/backup/run").json()["job_id"])
+    assert job["status"] == "failed" and "anderen OverHub-Geräts" in job["log"]
+    assert not any(c[0] == "restic" and c[2] == REPO and "init" in c for c in host.calls)
