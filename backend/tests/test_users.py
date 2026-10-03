@@ -129,3 +129,16 @@ def test_sso_listener_serves_only_whoami():
     assert c.get("/api/sso/whoami?app=overcook").status_code == 401
     assert c.get("/api/apps").status_code == 404
     assert c.get("/api/users").status_code == 404
+
+
+def test_existing_apps_follow_the_host_time_zone(admin, host):
+    from app import sso_server
+    from app.envfile import write_env
+
+    _install(admin)
+    path = settings.apps_dir / "overcook" / ".env"
+    env = read_env(path)
+    env["TZ"] = "Etc/UTC"  # VM first set up on UTC
+    write_env(path, env)
+    assert sso_server.sync_app_env(lambda m: None) == ["overcook"]
+    assert read_env(path)["TZ"] == settings.tz

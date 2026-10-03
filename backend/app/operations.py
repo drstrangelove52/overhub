@@ -196,7 +196,7 @@ def build_env(manifest: Manifest, user_settings: dict[str, str], components: lis
     overhub_url = tailscale_ops.app_url(443)
     if overhub_url:
         env["OVERHUB_PUBLIC_URL"] = overhub_url
-    env.setdefault("TZ", settings.tz)
+    env["TZ"] = settings.tz
     if components:
         env["COMPOSE_PROFILES"] = ",".join(components)
     else:

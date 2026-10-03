@@ -64,19 +64,21 @@ def start() -> None:
 
 
 def sync_app_env(log=print) -> list[str]:
-    """Point installed apps' OVERHUB_URL at the bridge listener (installs made
-    with OverHub 0.4.0 got 127.0.0.1, unreachable from containers). Restarts
-    an app only when its value actually changes."""
+    """Bring settings OverHub hands to the apps up to date: OVERHUB_URL on the
+    bridge listener (installs made with OverHub 0.4.0 got 127.0.0.1,
+    unreachable from containers) and TZ (follows the host, see install.sh).
+    Restarts an app only when a value actually changes."""
     from app import docker_ops  # late import: avoids a cycle via operations
 
-    wanted = app_url()
+    wanted = {"OVERHUB_URL": app_url(), "TZ": settings.tz}
     changed = []
     for env_file in sorted(settings.apps_dir.glob("*/.env")):
         env = read_env(env_file)
-        if "OVERHUB_URL" in env and env["OVERHUB_URL"] != wanted:
-            env["OVERHUB_URL"] = wanted
+        diff = {k: v for k, v in wanted.items() if k in env and env[k] != v}
+        if diff:
+            env.update(diff)
             write_env(env_file, env)
             docker_ops.compose(env_file.parent, "up", "-d")  # recreates the containers with the new env
             changed.append(env_file.parent.name)
-            log(f"sso: {env_file.parent.name} now asks {wanted}")
+            log(f"app env: {env_file.parent.name} now has {', '.join(f'{k}={v}' for k, v in diff.items())}")
     return changed

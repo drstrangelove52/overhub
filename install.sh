@@ -9,7 +9,7 @@
 # die Version dieses Installers gebracht.
 set -euo pipefail
 
-OVERHUB_VERSION="${OVERHUB_VERSION:-0.6.4}"
+OVERHUB_VERSION="${OVERHUB_VERSION:-0.6.5}"
 OVERHUB_IMAGE="ghcr.io/drstrangelove52/overhub"
 DATA=/opt/overhub
 PORT_INTERNAL=10443
@@ -117,6 +117,14 @@ EOF
   info "Zugangsdaten erzeugt"
 else
   info "bestehende Einstellungen bleiben (overhub.env)"
+  # The time zone follows the host (a VM may have been set up on UTC first).
+  HOST_TZ="$(cat /etc/timezone 2>/dev/null || true)"
+  if [ -n "$HOST_TZ" ] && ! grep -qxF "OVERHUB_TZ=${HOST_TZ}" "$DATA/overhub.env"; then
+    sed -i '/^OVERHUB_TZ=/d' "$DATA/overhub.env"
+    printf 'OVERHUB_TZ=%s
+' "$HOST_TZ" >>"$DATA/overhub.env"
+    info "Zeitzone: ${HOST_TZ}"
+  fi
 fi
 # Backup-Disk: jede USB-Disk mit dem Namen OVERHUB wird beim ersten Zugriff
 # unter /mnt/overhub/backup eingehängt (nofail: ohne Disk startet das Gerät
