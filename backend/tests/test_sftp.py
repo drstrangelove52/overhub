@@ -52,3 +52,17 @@ def test_nas_down_is_skipped_not_fatal(admin, host):
     backup._available_cache.clear()
     host.sftp_up = False
     assert admin.get("/api/backup").json()["targets"][0]["available"] is False
+
+
+def test_sftp_errors_name_the_cause():
+    explain = backup._explain_sftp
+    assert "Port 22" in explain("ssh: connect to host nas port 22: Connection refused\nConnection closed", "nas", "/b")
+    assert "SFTP ist auf dem NAS nicht aktiv" in explain("subsystem request failed on channel 0\nConnection closed", "nas", "/b")
+    assert "gibt es auf dem NAS nicht" in explain('Can\'t ls: "/b" not found', "nas", "/b")
+    assert explain("weird thing\nConnection closed", "nas", "/b") == "Keine SFTP-Verbindung zu nas: weird thing"
+
+
+def test_unreachable_nas_is_explained(admin, host):
+    host.sftp_up = False
+    r = admin.post("/api/backup/targets", json={**NAS, "password": "nas-pass-123"})
+    assert r.status_code == 400 and "Port 22" in r.json()["detail"]

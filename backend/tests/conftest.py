@@ -73,7 +73,7 @@ class FakeHost:
             return runner.Result(0, "")
         if cmd[0] == "sshpass":  # sftp login check against the fake NAS
             if not self.sftp_up:
-                return runner.Result(255, "ssh: connect to host nas.local port 22: Connection refused")
+                return runner.Result(255, "ssh: connect to host nas.local port 22: Connection refused\nConnection closed")
             return runner.Result(0 if (env or {}).get("SSHPASS") == self.sftp_password else 5, "")
         if cmd[0] == "restic":
             self.restic_env.append(env or {})

@@ -174,8 +174,31 @@ def sftp_check(location: str, password: str) -> str | None:
         return None
     if result.returncode in _SSHPASS_ERRORS:
         return _SSHPASS_ERRORS[result.returncode]
-    last = (result.output.strip().splitlines() or [""])[-1][:200]
-    return f"Keine Verbindung zu {host} oder Ordner {path} fehlt ({last})"
+    return _explain_sftp(result.output, host, path)
+
+
+# ssh/sftp messages -> what to check. sftp always ends with a generic
+# "Connection closed", so the cause sits in an earlier line.
+_SFTP_HINTS = [
+    ("Could not resolve hostname", "Server-Name {host} unbekannt — IP-Adresse versuchen"),
+    ("Connection refused", "{host} nimmt auf Port 22 keine Verbindung an — SFTP-Dienst aus oder Firewall des NAS"),
+    ("timed out", "{host} antwortet nicht — Adresse richtig, Gerät eingeschaltet?"),
+    ("No route to host", "{host} ist nicht erreichbar"),
+    ("subsystem request failed", "Anmeldung ok, aber SFTP ist auf dem NAS nicht aktiv oder für den Benutzer nicht erlaubt"),
+    ("Host key verification failed", _SSHPASS_ERRORS[6]),
+    ("Permission denied", "Anmeldung abgelehnt (Benutzer oder Passwort falsch)"),
+    ("No such file", "Ordner {path} gibt es auf dem NAS nicht (bei Synology: Name des freigegebenen Ordners)"),
+    ("not found", "Ordner {path} gibt es auf dem NAS nicht (bei Synology: Name des freigegebenen Ordners)"),
+]
+
+
+def _explain_sftp(output: str, host: str, path: str) -> str:
+    for needle, hint in _SFTP_HINTS:
+        if needle.lower() in output.lower():
+            return hint.format(host=host, path=path)
+    lines = [l.strip() for l in output.splitlines() if l.strip() and l.strip() != "Connection closed"]
+    detail = " / ".join(lines[-3:])[:300] or "Verbindung nach der Anmeldung beendet"
+    return f"Keine SFTP-Verbindung zu {host}: {detail}"
 
 
 def _real_mount(path: str) -> bool:
