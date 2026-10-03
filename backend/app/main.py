@@ -1,4 +1,6 @@
+import os
 import threading
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -21,8 +23,17 @@ from app.routers.backup import router as backup_router
 from app.routers.users import router as users_router, sso_router
 
 
+def _use_local_time() -> None:
+    """Job logs and export file names use the process's local time; without
+    TZ the container runs on UTC. OVERHUB_TZ comes from the host (install.sh)."""
+    os.environ["TZ"] = settings.tz
+    if hasattr(time, "tzset"):  # not on Windows (tests)
+        time.tzset()
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    _use_local_time()
     init_db()
     if settings.scheduler_enabled:
         scheduler.start()
